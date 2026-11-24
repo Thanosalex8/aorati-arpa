@@ -27,6 +27,7 @@
   .snd{display:flex;gap:6px;overflow-x:auto;max-width:100%;padding:2px;scrollbar-width:none}
   .snd::-webkit-scrollbar{display:none}
   .snd button{white-space:nowrap}
+  #sounds button.ld{opacity:.55}
   #installBtn{background:rgba(124,243,255,.18);border-color:var(--acc);color:var(--acc);font-weight:600}
   #installBtn[hidden],#brk[hidden]{display:none}
   .hd{order:0}
@@ -216,6 +217,33 @@ function sustain(dest,{h,type='sawtooth',f,t,a=.05,hold=.6,rel=.6,peak=.3,vib=0,
   det.forEach(c=>{ const o=ac.createOscillator(); if(h) o.setPeriodicWave(h); else o.type=type; o.frequency.value=f; o.detune.value=c; if(lg) lg.connect(o.detune); o.connect(g); o.start(t); o.stop(end); });
 }
 function kstring(f,decay,bright,dur,amp,dest,delay=0){ const s=ac.createBufferSource(); s.buffer=karplus(f,decay,bright,dur); const g=ac.createGain(); g.gain.value=amp; s.connect(g); g.connect(dest); s.start(ac.currentTime+delay); }
+// ---- Πραγματικά δείγματα οργάνων (FluidR3_GM, CC BY 3.0, Frank Wen · μέσω gleitz/midi-js-soundfonts) ----
+// Φορτώνονται όταν διαλέγεις όργανο· μέχρι να φορτώσουν παίζει ο συνθετικός ήχος.
+const SF={};
+const SF_MAP={oboe:'oboe',clarinet:'clarinet',flute:'flute',ney:'shakuhachi',panflute:'pan_flute',sax:'alto_sax',trumpet:'trumpet',violin:'violin',cello:'cello',choir:'choir_aahs',organ:'church_organ',piano:'acoustic_grand_piano',accordion:'accordion',harpsichord:'harpsichord',sitar:'sitar',santouri:'dulcimer',kalimba:'kalimba',vibes:'vibraphone',musicbox:'music_box'};
+function sfLoad(name,key){
+  if(!ac||SF[name]) return;
+  const e=SF[name]={state:'loading',buf:{},keys:[],norm:1};
+  const btn=document.querySelector('#sounds button[data-k="'+key+'"]'); if(btn) btn.classList.add('ld');
+  fetch(new URL('sf/'+name+'.json',document.baseURI)).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); }).then(async d=>{
+    const peaks=[];
+    for(const k of Object.keys(d)){
+      const bin=atob(d[k]), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+      const b=await ac.decodeAudioData(u.buffer); e.buf[k]=b; e.keys.push(+k);
+      let pk=0; const ch=b.getChannelData(0); for(let i=0;i<ch.length;i+=7) pk=Math.max(pk,Math.abs(ch[i])); peaks.push(pk);
+    }
+    peaks.sort((a,b)=>a-b); e.norm=0.4/Math.max(0.05,peaks[peaks.length>>1]||0.5);   // ίδια περίπου ένταση σε όλα τα όργανα
+    e.state='ready'; if(btn) btn.classList.remove('ld');
+  }).catch(()=>{ delete SF[name]; if(btn) btn.classList.remove('ld'); });
+}
+function sfPlay(name,f,v){
+  const e=SF[name]; if(!e||e.state!=='ready'||!e.keys.length) return false;
+  const midi=69+12*Math.log2(f/440); let k=e.keys[0]; for(const x of e.keys) if(Math.abs(x-midi)<Math.abs(k-midi)) k=x;
+  const src=ac.createBufferSource(); src.buffer=e.buf[k]; src.playbackRate.value=Math.pow(2,(midi-k)/12);
+  const t=ac.currentTime, dur=Math.min(3.2,src.buffer.duration/src.playbackRate.value), g=ac.createGain();
+  g.gain.setValueAtTime(1,t); g.gain.setValueAtTime(1,t+Math.max(0.1,dur-0.5)); g.gain.linearRampToValueAtTime(0,t+dur);
+  src.connect(g); out(g,v*e.norm,true); src.start(t); src.stop(t+dur+0.05); return true;
+}
 const SOUNDS = {
   guitar:{name:'Κιθάρα', en:'Guitar', hue:35, play(f,v){ const s=ac.createBufferSource(); s.buffer=karplus(f,0.996,0.55,2.5); out(s,v*0.9,true); s.start(); }},
   harp:{name:'Άρπα', en:'Harp', hue:190, play(f,v){ const s=ac.createBufferSource(); s.buffer=karplus(f,0.9985,0.22,3.5); const lp=ac.createBiquadFilter(); lp.frequency.value=f*6; s.connect(lp); out(lp,v*1.3,true); s.start(); }},
@@ -285,6 +313,8 @@ const SOUNDS = {
   musicbox:{name:'Κουτί μουσικής', en:'Music box', hue:310, play(f,v){ f*=4; const t=ac.currentTime, bus=ac.createGain(); out(bus,v*0.6,true);
       envOsc('sine',f,t,.002,1.4,.5,bus); envOsc('sine',f*2.76,t,.002,.35,.12,bus); envOsc('sine',f*5.4,t,.001,.12,.05,bus); }},
 };
+for(const [k,n] of Object.entries(SF_MAP)){ const so=SOUNDS[k], synth=so.play; so.sf=n;
+  so.play=(f,v)=>{ if(sfPlay(n,f,v)) return; synth(f,v); sfLoad(n,k); }; }
 let sound='harp';
 
 /* ---------- Pitch ---------- */
@@ -539,6 +569,8 @@ function buildSettings(){
   }
   const rb=document.createElement('button'); rb.textContent=T('Επαναφορά προεπιλογών','Reset to defaults'); rb.style.marginTop='12px';
   rb.onclick=()=>{ S=clone(DEFAULTS); refreshers.forEach(f=>f()); changed(); }; setEl.appendChild(rb);
+  const cr=document.createElement('div'); cr.style.cssText='color:var(--dim);font-size:11px;line-height:1.5;margin-top:14px';
+  cr.textContent=T('Δείγματα οργάνων: FluidR3_GM του Frank Wen (CC BY 3.0), μέσω gleitz/midi-js-soundfonts.','Instrument samples: FluidR3_GM by Frank Wen (CC BY 3.0), via gleitz/midi-js-soundfonts.'); setEl.appendChild(cr);
 }
 function changed(){ saveSettings(); applyAudio(); retune(); refreshers.forEach(f=>f()); }
 buildSettings();
@@ -570,7 +602,7 @@ function applyDesign(d){
   if(d.settings){ const sv=d.settings, n=clone(DEFAULTS);
     for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(n.m[i]) Object.assign(n.m[i],sv.m[i]); } else if(k in n) n[k]=sv[k]; }
     S=n; saveSettings(); applyAudio(); refreshers.forEach(f=>f()); }
-  if(SOUNDS[d.sound]){ sound=d.sound; [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===sound)); }
+  if(SOUNDS[d.sound]){ sound=d.sound; if(SOUNDS[sound].sf&&ac) sfLoad(SOUNDS[sound].sf,sound); [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===sound)); }
   snap=d.snap!==false; sb.classList.toggle('on',snap);
   strings.length=0; pending=null; guide=null;
   for(const s of d.strings||[]) addString({x:s.a.x*W,y:s.a.y*H},{x:s.b.x*W,y:s.b.y*H},s.fixed);
@@ -760,7 +792,7 @@ document.getElementById('melBtn').addEventListener('click',()=>{ setEl.classList
 const sw=document.getElementById('sounds');
 Object.entries(SOUNDS).forEach(([k,s])=>{
   const b=document.createElement('button'); b.textContent=T(s.name,s.en); b.dataset.k=k; if(k===sound)b.classList.add('on');
-  b.onclick=()=>{initAudio(); sound=k; [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===k));
+  b.onclick=()=>{initAudio(); sound=k; if(s.sf) sfLoad(s.sf,k); [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===k));
     strings.forEach(st=>st.hue=s.hue+((st.midi%12)*9)); };
   sw.appendChild(b);
 });
@@ -883,5 +915,6 @@ requestAnimationFrame(frame);
   });
 })();
 </script>
+<script>if('serviceWorker' in navigator && location.protocol==='https:') addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
 </body>
 </html>

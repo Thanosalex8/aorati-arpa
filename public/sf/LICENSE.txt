@@ -1,0 +1,6 @@
+Instrument samples in this folder are derived from the FluidR3_GM soundfont
+by Frank Wen, licensed under Creative Commons Attribution 3.0 (CC BY 3.0):
+https://creativecommons.org/licenses/by/3.0/
+Converted to web format by gleitz/midi-js-soundfonts:
+https://github.com/gleitz/midi-js-soundfonts
+Files were trimmed to a subset of notes (every third semitone, A2-A6).
