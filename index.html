@@ -28,6 +28,7 @@
   .snd::-webkit-scrollbar{display:none}
   .snd button{white-space:nowrap}
   #sounds button.ld{opacity:.55}
+  #sounds button.dl{outline:3px solid #ffd678;outline-offset:1px}
   #installBtn{background:rgba(124,243,255,.18);border-color:var(--acc);color:var(--acc);font-weight:600}
   #installBtn[hidden],#brk[hidden]{display:none}
   .hd{order:0}
@@ -233,7 +234,7 @@ function sfLoad(name,key){
       let pk=0; const ch=b.getChannelData(0); for(let i=0;i<ch.length;i+=7) pk=Math.max(pk,Math.abs(ch[i])); peaks.push(pk);
     }
     peaks.sort((a,b)=>a-b); e.norm=0.4/Math.max(0.05,peaks[peaks.length>>1]||0.5);   // ίδια περίπου ένταση σε όλα τα όργανα
-    e.state='ready'; if(btn) btn.classList.remove('ld');
+    e.state='ready'; if(btn){ btn.classList.remove('ld'); btn.classList.add('dl'); }
   }).catch(()=>{ delete SF[name]; if(btn) btn.classList.remove('ld'); });
 }
 function sfPlay(name,f,v){
@@ -812,6 +813,8 @@ function setLang(l){
   if(melEl.classList.contains('show')) renderMel();
 }
 langBtn.onclick=()=>setLang(LANG==='en'?'el':'en');
+// όργανα που έχουν ήδη κατεβεί (από προηγούμενη φορά) παίρνουν κι αυτά το περίγραμμα
+if(window.caches) [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; if(so.sf) caches.match(new URL('sf/'+so.sf+'.json',document.baseURI)).then(r=>{ if(r) b.classList.add('dl'); }).catch(()=>{}); });
 document.getElementById('undo').onclick=()=>{ if(pending){pending=null;return;} strings.pop(); updCount(); };
 document.getElementById('clear').onclick=()=>{ strings.length=0; pending=null; guide=null; updCount(); };
 const sb=document.getElementById('scaleBtn');
