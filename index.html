@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05060a">
+<title>Αόρατη Άρπα</title>
+<style>
+  :root{--bg:#05060a;--fg:#e8ecf5;--dim:#8a93a8;--acc:#7cf3ff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .bar{position:fixed;left:0;right:0;display:flex;gap:6px;padding:8px 10px;z-index:2;align-items:center;flex-wrap:wrap;pointer-events:none}
+  .bar>*{pointer-events:auto}
+  .top{top:0;padding-top:max(8px,env(safe-area-inset-top))}
+  .bottom{bottom:0;padding-bottom:max(10px,env(safe-area-inset-bottom));justify-content:center}
+  .title{font-weight:700;letter-spacing:.04em;font-size:15px;margin-right:auto}
+  .title small{display:block;font-weight:400;color:var(--dim);font-size:11px;letter-spacing:0}
+  button,select{font:inherit;font-size:13px;color:var(--fg);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:8px 13px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  button.on{background:rgba(124,243,255,.18);border-color:var(--acc);color:var(--acc)}
+  .snd{display:flex;gap:6px;overflow-x:auto;max-width:100%;padding:2px;scrollbar-width:none}
+  .snd::-webkit-scrollbar{display:none}
+  .snd button{white-space:nowrap}
+  #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:var(--dim);font-size:15px;line-height:1.55;pointer-events:none;z-index:1;width:min(320px,86vw);transition:opacity .5s}
+  #hint b{color:var(--fg)}
+  #lat{position:fixed;left:10px;top:max(64px,calc(env(safe-area-inset-top) + 56px));z-index:3;display:none;background:rgba(5,6,10,.85);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--fg);max-width:min(300px,90vw)}
+  #lat.show{display:block}
+  #lat .pad{margin:6px 0;padding:14px;text-align:center;border-radius:10px;background:rgba(124,243,255,.15);border:1px solid var(--acc);color:var(--acc);font-weight:700;font-family:system-ui,sans-serif}
+  #lat .dim{color:var(--dim)}
+  #set,#lib,#mel{position:fixed;left:10px;top:max(64px,calc(env(safe-area-inset-top) + 56px));bottom:70px;z-index:3;display:none;overflow-y:auto;background:rgba(5,6,10,.9);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:10px 14px;font-size:13px;color:var(--fg);width:min(320px,90vw);touch-action:pan-y}
+  #set.show,#lib.show,#mel.show{display:block}
+  #mel select{width:100%;margin:8px 0}
+  #mel .lv{display:flex;gap:6px;margin:6px 0}
+  #mel .lv button{flex:1}
+  #mel p{color:var(--dim);font-size:12px;line-height:1.5;margin:8px 0}
+  #lib .item{display:flex;align-items:center;gap:6px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:12px}
+  #lib .item .nm{flex:1;min-width:0}
+  #lib .item .nm b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #lib .item .nm small{color:var(--dim);font-size:11px}
+  #lib input[type=text]{width:100%;font:inherit;font-size:14px;color:var(--fg);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:9px 11px;margin:8px 0}
+  #set .row{margin:10px 0}
+  #set .row label{display:flex;justify-content:space-between;color:var(--dim);font-size:12px;margin-bottom:3px}
+  #set .row label b{color:var(--acc);font-weight:600}
+  #set input[type=range]{width:100%;accent-color:var(--acc)}
+  #set h4{margin:14px 0 4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="bar top">
+  <div class="title">Αόρατη Άρπα<small id="count">0 χορδές</small></div>
+  <button id="scaleBtn" class="on" title="Κούμπωμα σε κλίμακα">Κλίμακα</button>
+  <button id="undo">Αναίρεση</button>
+  <button id="clear">Καθαρισμός</button>
+  <button id="melBtn" title="Οδηγός μελωδίας">Μελωδία</button>
+  <button id="libBtn" title="Αποθήκευση και φόρτωση σχεδίων">Σχέδια</button>
+  <button id="setBtn" title="Ρυθμίσεις ήχου">Ρυθμίσεις</button>
+  <button id="latBtn" title="Μέτρηση latency">ms</button>
+</div>
+<div id="set"></div>
+<div id="lib"></div>
+<div id="mel"></div>
+<div id="lat" class="bar-stop">
+  <div id="latOut">–</div>
+  <div class="pad" id="latPad">ΔΟΚΙΜΗ (πάτα)</div>
+  <button id="latReset">Μηδενισμός</button>
+  <button id="latHide">Κρύψε</button>
+  <div class="dim">Μετράει από το γεγονός αφής ως την κλήση start(). Το πραγματικό αφή→ήχος θέλει εξωτερική μέτρηση (βίντεο).</div>
+</div>
+
+<div class="bar bottom">
+  <div class="snd" id="sounds"></div>
+</div>
+
+<div id="hint">
+  <b>Πάτα ένα σημείο</b> και μετά <b>ένα δεύτερο</b><br>για να τεντώσεις μια χορδή.<br><br>
+  <b>Σύρε το δάχτυλο</b> πάνω από τις χορδές<br>για να τις παίξεις.<br><br>
+  Κοντή χορδή = ψηλή νότα · μακριά = μπάσα
+</div>
+
+<script>
+(() => {
+const cv = document.getElementById('c'), cx = cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+addEventListener('resize',resize);resize();
+
+/* ---------- Settings ---------- */
+// Ιδιότητες χορδής (είσοδοι) -> τι ελέγχουν (στόχοι). Κάθε τιμή είναι ποσοστό -1..+1.
+// Είσοδοι 0..1: len (μακριά=1), thick, y (ψηλά=1), x (δεξιά=1), tilt (ανηφόρα προς τα δεξιά=1),
+// hitpos (χτύπημα αριστερά=0, δεξιά=1), edge (κέντρο=0, άκρη=1).
+const INPUTS=[
+  ['len','Μέγεθος (μήκος χορδής)'],
+  ['thick','Πάχος χορδής'],
+  ['y','Ύψος στην οθόνη (πάνω = 1)'],
+  ['x','Οριζόντια θέση (δεξιά = 1)'],
+  ['tilt','Κλίση (ανηφόρα προς τα δεξιά = 1)'],
+  ['hitpos','Σημείο χτυπήματος (αριστερά ↔ δεξιά)'],
+  ['edge','Απόσταση χτυπήματος από το κέντρο'],
+];
+const TARGETS=[['note','Νότα'],['bright','Φωτεινότητα'],['vol','Ένταση']];
+const DEFAULTS={vol:0.8, vel:1, bass:0, treble:0, shift:0, span:3, thickAuto:true, thick:0.4,
+  notes:[1,0,1,0,1,0,0,1,0,1,0,0],      // Ντο Ρε Μι Σολ Λα (πεντατονική)
+  m:{ len:{note:-1,bright:0,vol:0}, thick:{note:0,bright:-0.5,vol:0.2}, y:{note:0,bright:0,vol:0},
+      x:{note:0,bright:0,vol:0}, tilt:{note:0,bright:0,vol:0}, hitpos:{note:0,bright:0,vol:0},
+      edge:{note:0,bright:1,vol:-0.3} }};
+const clone=o=>JSON.parse(JSON.stringify(o));
+let S=clone(DEFAULTS);
+try{ const sv=JSON.parse(localStorage.getItem('arpa.settings')||'{}');
+  for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(S.m[i]) Object.assign(S.m[i],sv.m[i]); } else if(k in S) S[k]=sv[k]; } }catch(e){}
+const saveSettings=()=>{ try{localStorage.setItem('arpa.settings',JSON.stringify(S));}catch(e){} };
+
+/* ---------- Audio ---------- */
+let ac=null, master=null, verb=null, bassF=null, trebF=null;
+function initAudio(){
+  if(ac){ if(ac.state!=='running') ac.resume(); return; }
+  ac = new (window.AudioContext||window.webkitAudioContext)();
+  master = ac.createGain(); master.gain.value=S.vol;
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value=-14; comp.ratio.value=4;
+  bassF=ac.createBiquadFilter(); bassF.type='lowshelf'; bassF.frequency.value=200;
+  trebF=ac.createBiquadFilter(); trebF.type='highshelf'; trebF.frequency.value=3000;
+  master.connect(bassF); bassF.connect(trebF); trebF.connect(comp); comp.connect(ac.destination);
+  applyAudio();
+  // simple reverb (generated impulse)
+  verb = ac.createConvolver();
+  const len = ac.sampleRate*2.2, ir = ac.createBuffer(2,len,ac.sampleRate);
+  for(let ch=0;ch<2;ch++){const d=ir.getChannelData(ch);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);}
+  verb.buffer=ir; const vg=ac.createGain(); vg.gain.value=0.28; verb.connect(vg); vg.connect(comp);
+  // iOS unlock
+  const b=ac.createBuffer(1,1,22050), s=ac.createBufferSource(); s.buffer=b; s.connect(ac.destination); s.start(0);
+}
+
+function applyAudio(){
+  if(!ac) return;
+  master.gain.value=S.vol; bassF.gain.value=S.bass; trebF.gain.value=S.treble;
+}
+const ksCache = new Map();
+function karplus(freq, decay, bright, dur){
+  const key = freq.toFixed(1)+'|'+decay+'|'+bright;
+  if(ksCache.has(key)) return ksCache.get(key);
+  const sr=ac.sampleRate, n=Math.floor(sr*dur), buf=ac.createBuffer(1,n,sr), d=buf.getChannelData(0);
+  const N=Math.max(2,Math.round(sr/freq)), ring=new Float32Array(N);
+  let prev=0;
+  for(let i=0;i<N;i++){ const r=Math.random()*2-1; prev = prev + bright*(r-prev); ring[i]=prev; }
+  let idx=0;
+  for(let i=0;i<n;i++){
+    const a=ring[idx], b=ring[(idx+1)%N];
+    const v=decay*0.5*(a+b);
+    d[i]=a; ring[idx]=v; idx=(idx+1)%N;
+  }
+  ksCache.set(key,buf); if(ksCache.size>200) ksCache.delete(ksCache.keys().next().value);
+  return buf;
+}
+// Χροιά ανάλογα με το σημείο που χτυπιέται η χορδή:
+// Φωτεινότητα 0 = στρογγυλός, 1 = λαμπερός. Ορίζεται στο pluck() από τον πίνακα ιδιοτήτων.
+let toneB=0.5, toneV=1, toneFreq=440;   // toneB: φωτεινότητα 0..1, toneV: πολλαπλασιαστής έντασης (από τον πίνακα ιδιοτήτων)
+function out(node, vel, wet){
+  const pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  const g = ac.createGain();
+  const lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.Q.value=0.5;
+  const k = Math.pow(toneB,1.3);
+  lp.frequency.value = Math.min(18000, Math.max(400, toneFreq*(3+k*16)));
+  g.gain.value = vel*toneV;   // αντιστάθμιση: η μέση χάνει ενέργεια από το φίλτρο
+  node.connect(lp); lp.connect(g);
+  if(pan){ pan.pan.value = (Math.random()-.5)*.5; g.connect(pan); pan.connect(master); if(wet) pan.connect(verb);}
+  else { g.connect(master); if(wet) g.connect(verb); }
+}
+function envOsc(type,freq,t,a,dec,peak,dest,detune=0){
+  const o=ac.createOscillator(), g=ac.createGain();
+  o.type=type; o.frequency.value=freq; o.detune.value=detune;
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+a);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+a+dec);
+  o.connect(g); g.connect(dest); o.start(t); o.stop(t+a+dec+.05); return o;
+}
+
+const SOUNDS = {
+  guitar:{name:'Κιθάρα', hue:35, play(f,v){ const s=ac.createBufferSource(); s.buffer=karplus(f,0.996,0.55,2.5); out(s,v*0.9,true); s.start(); }},
+  harp:{name:'Άρπα', hue:190, play(f,v){ const s=ac.createBufferSource(); s.buffer=karplus(f,0.9985,0.22,3.5); const lp=ac.createBiquadFilter(); lp.frequency.value=f*6; s.connect(lp); out(lp,v*1.3,true); s.start(); }},
+  bouzouki:{name:'Μπουζούκι', hue:50, play(f,v){ f*=2; [0,1].forEach(k=>{ const s=ac.createBufferSource(); s.buffer=karplus(f*(k?1.004:1),0.994,0.9,2); out(s,v*0.55,true); s.start(ac.currentTime+k*0.012); }); }},
+  bell:{name:'Καμπάνα', hue:280, play(f,v){ const t=ac.currentTime, bus=ac.createGain(); out(bus,v*0.5,true);
+      f*=2; [[1,1,3],[2.76,.5,1.6],[5.4,.25,.9],[8.93,.12,.5]].forEach(([r,a,d])=>envOsc('sine',f*r,t,0.004,d,a,bus)); }},
+  synth:{name:'Synth', hue:320, play(f,v){ const t=ac.currentTime, lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.Q.value=6;
+      lp.frequency.setValueAtTime(f*12,t); lp.frequency.exponentialRampToValueAtTime(f*1.5,t+0.6); out(lp,v*0.35,true);
+      envOsc('sawtooth',f,t,0.01,1.4,0.6,lp,-7); envOsc('sawtooth',f,t,0.01,1.4,0.6,lp,7); envOsc('square',f/2,t,0.01,1.2,0.3,lp); }},
+  marimba:{name:'Μαρίμπα', hue:120, play(f,v){ const t=ac.currentTime, bus=ac.createGain(); out(bus,v*0.8,false);
+      f*=2; envOsc('sine',f,t,0.003,0.9,0.8,bus); envOsc('sine',f*3.93,t,0.002,0.18,0.25,bus); envOsc('sine',f*9.2,t,0.001,0.05,0.08,bus); }},
+  bass:{name:'Μπάσο', hue:0, play(f,v){ f/=2; const s=ac.createBufferSource(); s.buffer=karplus(Math.max(f,30),0.997,0.35,2.5); const lp=ac.createBiquadFilter(); lp.frequency.value=900; s.connect(lp); out(lp,v*1.6,false); s.start(); }},
+};
+let sound='harp';
+
+/* ---------- Pitch ---------- */
+const NOTE_NAMES=['Ντο','Ντο#','Ρε','Ρε#','Μι','Φα','Φα#','Σολ','Σολ#','Λα','Λα#','Σι'];
+const PENTA=[0,2,4,7,9];
+let snap=true;
+const clamp01=v=>Math.min(1,Math.max(0,v));
+function stringProps(a,b,len){
+  const diag=Math.hypot(W,H);
+  const flip = Math.abs(b.x-a.x)>=2 ? a.x>b.x : a.y>b.y;     // το «αριστερό» άκρο πρώτο (κάθετη: το πάνω)
+  const p=flip?b:a, q=flip?a:b;
+  const lenV=Math.sqrt(clamp01(len/diag));
+  const th = S.thickAuto ? lenV : S.thick;
+  return { flip, props:{ len:lenV, thick:th, y:1-clamp01(((a.y+b.y)/2)/H), x:clamp01(((a.x+b.x)/2)/W),
+           tilt:clamp01((-(q.y-p.y)/len+1)/2) } };
+}
+function mix(vals,target){ let sum=0; for(const k in vals){ const m=S.m[k]; if(m) sum+=m[target]*(vals[k]-0.5); } return sum; }
+function snapMidi(midi){
+  const on=[]; for(let m=12;m<=120;m++) if(S.notes[((m%12)+12)%12]) on.push(m);
+  if(!on.length) return midi;                           // καμία νότα επιλεγμένη = ελεύθερο
+  let best=on[0],bd=1e9; for(const m of on){ const d=Math.abs(m-midi); if(d<bd){bd=d;best=m;} } return best;
+}
+function midiFrom(vals){
+  const x=clamp01(0.5+mix(vals,'note'));
+  let midi=45+S.shift*12+x*S.span*12;                   // προεπιλογή: ~Λα2 .. Λα5
+  return snap?snapMidi(midi):midi;
+}
+const toFreq=m=>440*Math.pow(2,(m-69)/12);
+function pitchFor(a,b,len){
+  const sp=stringProps(a,b,len), midi=midiFrom(sp.props), r=Math.round(midi);
+  return {freq:toFreq(midi), midi, th:sp.props.thick, flip:sp.flip, props:sp.props,
+          label: NOTE_NAMES[((r%12)+12)%12] + (snap? '' : '~')};
+}
+
+/* ---------- Strings ---------- */
+const strings=[];
+// s.fixed = σταθερή νότα (MIDI) που δεν αλλάζει με τις ρυθμίσεις· χρησιμοποιείται από τον οδηγό μελωδίας
+function applyPitch(s){
+  Object.assign(s,pitchFor(s.a,s.b,s.len));
+  if(s.fixed!=null){ s.midi=s.fixed; s.freq=toFreq(s.fixed); s.label=NOTE_NAMES[((s.fixed%12)+12)%12]; }
+  s.hue=SOUNDS[sound].hue+((s.midi%12)*9);
+}
+function addString(a,b,fixed){
+  const len=Math.hypot(b.x-a.x,b.y-a.y); if(len<30) return null;
+  const s={a,b,len,amp:0,phase:0,pos:.5,t0:0,born:performance.now(),fixed:fixed==null?null:fixed};
+  applyPitch(s); strings.push(s); updCount(); hideHint(); return s;
+}
+function retune(){ strings.forEach(applyPitch); }
+function updCount(){ document.getElementById('count').textContent = strings.length+(strings.length===1?' χορδή':' χορδές'); }
+
+function segX(p1,p2,p3,p4){ // returns t along p3-p4 if segments intersect
+  const d=(p2.x-p1.x)*(p4.y-p3.y)-(p2.y-p1.y)*(p4.x-p3.x); if(Math.abs(d)<1e-9) return -1;
+  const u=((p3.x-p1.x)*(p4.y-p3.y)-(p3.y-p1.y)*(p4.x-p3.x))/d;
+  const t=((p3.x-p1.x)*(p2.y-p1.y)-(p3.y-p1.y)*(p2.x-p1.x))/d;
+  return (u>=0&&u<=1&&t>=0&&t<=1)?t:-1;
+}
+let evT=0;   // timeStamp του γεγονότος αφής που προκάλεσε το pluck
+function pluck(s,t,speed){
+  const now=performance.now(); if(now-s.t0<45) return;
+  const v=0.7+(Math.min(1,0.35+speed/2.2)-0.7)*S.vel;   // S.vel: 0 = ίδια ένταση πάντα, 1 = ανάλογη της ταχύτητας
+  s.amp=Math.min(22, 8+speed*9); s.pos=Math.min(.9,Math.max(.1,t)); s.t0=now;
+  const u=s.flip?1-t:t;                                  // 0 = αριστερά, 1 = δεξιά
+  const all={...s.props, hitpos:u, edge:Math.abs(2*u-1)};
+  toneB=clamp01(0.5+mix(all,'bright')); toneV=Math.pow(2,mix(all,'vol')*2);
+  let noteS=s;                                           // εύκολη λειτουργία: όποια χορδή κι αν περάσεις, παίζει η επόμενη νότα του τραγουδιού
+  if(guide && guide.easy && !guide.demo && !guide.doneAt && guide.idx<guide.seq.length) noteS=guide.seq[guide.idx];
+  const f = noteS!==s ? noteS.freq : (s.fixed==null && (S.m.hitpos.note||S.m.edge.note)) ? toFreq(midiFrom(all)) : s.freq;   // το σημείο χτυπήματος αλλάζει τη νότα
+  if(noteS!==s) guide.pop={text:noteS.label, x:s.a.x+(s.b.x-s.a.x)*t, y:s.a.y+(s.b.y-s.a.y)*t, born:now};
+  toneFreq=f;
+  SOUNDS[sound].play(f,v);
+  latRecord(evT);
+  if(navigator.vibrate) try{navigator.vibrate(8)}catch(e){}
+  sparks(s,t);
+  if(guide && !guide.demo) guideHit(s);
+}
+
+/* ---------- Particles ---------- */
+const parts=[];
+function sparks(s,t){
+  const x=s.a.x+(s.b.x-s.a.x)*t, y=s.a.y+(s.b.y-s.a.y)*t;
+  for(let i=0;i<14;i++){const an=Math.random()*Math.PI*2, sp=1+Math.random()*3.5;
+    parts.push({x,y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp,life:1,hue:s.hue});}
+}
+
+/* ---------- Latency probe (Φάση 0) ---------- */
+const lat={xs:[]}, latEl=document.getElementById('lat'), latOut=document.getElementById('latOut');
+function latRecord(t0){
+  if(!latEl.classList.contains('show')||!t0) return;
+  lat.xs.push(performance.now()-t0); if(lat.xs.length>100) lat.xs.shift();
+  latRender();
+}
+function latRender(){
+  const a=[...lat.xs].sort((x,y)=>x-y), n=a.length, q=p=>n?a[Math.min(n-1,Math.floor(p*n))]:0;
+  const f=v=>v.toFixed(1), last=n?lat.xs[n-1]:0;
+  const base=ac?ac.baseLatency:0, outL=ac&&ac.outputLatency!=null?ac.outputLatency:0;
+  latOut.innerHTML=`n=${n} · τελευταίο ${f(last)} ms<br>διάμεσος ${f(q(.5))} · p95 ${f(q(.95))} · max ${f(a[n-1]||0)}<br>`+
+    `<span class="dim">base ${f(base*1000)} · output ${f(outL*1000)} ms · sr ${ac?ac.sampleRate:'–'}<br>${navigator.userAgent.slice(0,70)}</span>`;
+}
+document.getElementById('latBtn').addEventListener('click',()=>{setEl.classList.remove('show');libEl.classList.remove('show');latEl.classList.toggle('show');initAudio();latRender();});
+document.getElementById('latHide').addEventListener('click',()=>latEl.classList.remove('show'));
+document.getElementById('latReset').addEventListener('click',()=>{lat.xs=[];latRender();});
+document.getElementById('latPad').addEventListener('pointerdown',e=>{
+  initAudio(); const t0=e.timeStamp; SOUNDS[sound].play(220,0.9); latRecord(t0);
+});
+['pointerdown','pointermove','pointerup'].forEach(ev=>latEl.addEventListener(ev,e=>e.stopPropagation()));
+
+/* ---------- Input ---------- */
+let pending=null;          // first anchor waiting for second tap
+const ptrs=new Map();
+cv.addEventListener('pointerdown',e=>{
+  initAudio(); cv.setPointerCapture(e.pointerId);
+  const he=hitEnd(e.clientX,e.clientY);
+  if(he){
+    const o=he.s[he.end==='a'?'b':'a'], d=he.s[he.end];
+    he.axis = Math.abs(he.s.b.x-he.s.a.x)>=Math.abs(he.s.b.y-he.s.a.y) ? 'x' : 'y';   // κύριος άξονας της χορδής
+    he.sign = Math.sign(d[he.axis]-o[he.axis])||1;                                      // από ποια πλευρά της άλλης τελίτσας είναι
+    ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[],drag:he}); return; }
+  ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:false,trail:[]});
+});
+cv.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId); if(!p) return;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for(const ev of (evs.length?evs:[e])){
+    const nx=ev.clientX, ny=ev.clientY, now=performance.now(); evT=ev.timeStamp;
+    if(p.drag){                                          // τράβηγμα τελίτσας: αλλάζει μήκος/θέση, άρα νότα
+      const {s,end}=p.drag, old=s.midi;
+      s[end]={x:nx,y:ny}; s.len=Math.max(1,Math.hypot(s.b.x-s.a.x,s.b.y-s.a.y));
+      applyPitch(s);
+      const o=s[end==='a'?'b':'a'], diff=(p.drag.axis==='x'?nx-o.x:ny-o.y)*p.drag.sign;
+      s.deleting = diff < -6;                            // πέρασε πέρα από την άλλη τελίτσα = θα διαγραφεί
+      if(!s.deleting && s.midi!==old && now-(s.tPrev||0)>60){ s.tPrev=now; previewNote(s); }
+      p.x=nx;p.y=ny;p.t=now; continue;
+    }
+    if(!p.moved && Math.hypot(nx-p.x0,ny-p.y0)>12) p.moved=true;
+    if(p.moved){
+      const dt=Math.max(1,now-p.t), speed=Math.hypot(nx-p.x,ny-p.y)/dt;
+      for(const s of strings){ const t=segX({x:p.x,y:p.y},{x:nx,y:ny},s.a,s.b); if(t>=0) pluck(s,t,speed); }
+      p.trail.push({x:nx,y:ny,life:1});
+    }
+    p.x=nx;p.y=ny;p.t=now;
+  }
+});
+function up(e){
+  const p=ptrs.get(e.pointerId); if(!p) return; ptrs.delete(e.pointerId);
+  if(p.drag){
+    const s=p.drag.s;
+    if(s.deleting && e.type!=='pointercancel'){          // άφησε αφού πέρασε την άλλη τελίτσα
+      const i=strings.indexOf(s); if(i>=0) strings.splice(i,1); updCount();
+      for(let k=0;k<26;k++){ const an=Math.random()*6.28, sp=1+Math.random()*4; parts.push({x:p.x,y:p.y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp,life:1,hue:s.hue}); }
+    }
+    s.deleting=false; return;
+  }
+  trails.push(...p.trail);
+  if(p.moved || e.type==='pointercancel') return;
+  const pt={x:p.x0,y:p.y0};
+  if(!pending){ pending={...pt,born:performance.now()}; tick(660,0.15); }
+  else { addString(pending,pt); pending=null; }
+}
+cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
+const trails=[];
+const HANDLE_R=24;     // ακτίνα πιασίματος τελίτσας
+function hitEnd(x,y){      // η πιο κοντινή τελίτσα μέσα στην ακτίνα πιασίματος
+  let best=null,bd=HANDLE_R;
+  for(let i=strings.length-1;i>=0;i--){ const s=strings[i];
+    for(const end of ['a','b']){ const d=Math.hypot(s[end].x-x,s[end].y-y); if(d<bd){bd=d;best={s,end};} } }
+  return best;
+}
+function previewNote(s){ if(!ac) return; toneB=0.5; toneV=1; toneFreq=s.freq; SOUNDS[sound].play(s.freq,0.35); }
+function tick(f,v){ if(!ac) return; const t=ac.currentTime,g=ac.createGain(); g.connect(master); envOsc('sine',f,t,0.002,0.08,v,g); }
+
+/* ---------- Settings UI ---------- */
+const setEl=document.getElementById('set');
+const CTRL=[
+  ['h','Νότα'],
+  ['rng','shift','Μπάσο ↔ πρίμα (καταχωρητής)',-2,2,1,v=>(v>0?'+':'')+v+' οκτ.'],
+  ['rng','span','Εύρος',1,5,0.5,v=>v+' οκτ.'],
+  ['notes'],
+  ['h','Τι ελέγχει τι (ιδιότητες χορδής)'],
+  ['matrix'],
+  ['h','Ένταση'],
+  ['rng','vol','Ένταση (δυνατά ↔ σιγά)',0,1,0.01,v=>Math.round(v*100)+'%'],
+  ['rng','vel','Ευαισθησία στην ταχύτητα',0,1,0.01,v=>Math.round(v*100)+'%'],
+  ['h','Χροιά'],
+  ['rng','bass','Μπάσα',-12,12,1,v=>(v>0?'+':'')+v+' dB'],
+  ['rng','treble','Πρίμα',-12,12,1,v=>(v>0?'+':'')+v+' dB'],
+  ['h','Χορδή'],
+  ['chk','thickAuto','Πάχος αυτόματα από το μήκος'],
+  ['rng','thick','Πάχος (λεπτή ↔ χοντρή)',0,1,0.01,v=>Math.round(v*100)+'%'],
+];
+const refreshers=[];
+const noteName=m=>NOTE_NAMES[((Math.round(m)%12)+12)%12]+(Math.floor(Math.round(m)/12)-1);
+const PRESETS=[['Πεντατονική',[0,2,4,7,9]],['Μείζονα',[0,2,4,5,7,9,11]],['Ελάσσονα',[0,2,3,5,7,8,10]],['Όλες',[0,1,2,3,4,5,6,7,8,9,10,11]]];
+function buildNotes(){
+  const box=document.createElement('div'); box.className='row';
+  box.innerHTML='<label><span>Ποιες νότες παίζουν (ισχύει με ενεργό «Κλίμακα»)</span></label><div class="nts" style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px"></div><div class="pre" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px"></div><div class="rangeTxt" style="color:var(--dim);font-size:12px;margin-top:6px"></div>';
+  const g=box.querySelector('.nts'), pre=box.querySelector('.pre'), rt=box.querySelector('.rangeTxt'), btns=[];
+  NOTE_NAMES.forEach((n,i)=>{ const b=document.createElement('button'); b.textContent=n; b.style.padding='6px 4px';
+    b.onclick=()=>{ S.notes[i]=S.notes[i]?0:1; show(); changed(); }; g.appendChild(b); btns.push(b); });
+  PRESETS.forEach(([n,arr])=>{ const b=document.createElement('button'); b.textContent=n; b.style.padding='5px 9px'; b.style.fontSize='12px';
+    b.onclick=()=>{ S.notes=NOTE_NAMES.map((_,i)=>arr.includes(i)?1:0); show(); changed(); }; pre.appendChild(b); });
+  const show=()=>{ btns.forEach((b,i)=>b.classList.toggle('on',!!S.notes[i]));
+    const lo=45+S.shift*12; rt.textContent='Εύρος: '+noteName(lo)+' – '+noteName(lo+S.span*12); };
+  refreshers.push(show); show(); return box;
+}
+function buildMatrix(){
+  const box=document.createElement('div');
+  const pct=v=>(v>0?'+':'')+Math.round(v*100)+'%';
+  INPUTS.forEach(([k,label])=>{
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<label style="color:var(--fg)"><span>${label}</span></label><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>`;
+    const grid=row.querySelector('div');
+    TARGETS.forEach(([t,tl])=>{
+      const cell=document.createElement('div');
+      cell.innerHTML=`<label style="font-size:11px"><span>${tl}</span><b></b></label><input type="range" min="-1" max="1" step="0.05">`;
+      const inp=cell.querySelector('input'), val=cell.querySelector('b');
+      const show=()=>{ inp.value=S.m[k][t]; val.textContent=pct(+S.m[k][t]); };
+      inp.oninput=()=>{ S.m[k][t]=+inp.value; show(); changed(); };
+      refreshers.push(show); show(); grid.appendChild(cell);
+    });
+    box.appendChild(row);
+  });
+  return box;
+}
+function buildSettings(){
+  setEl.innerHTML='';
+  const head=document.createElement('div'); head.style.cssText='display:flex;justify-content:space-between;align-items:center';
+  head.innerHTML='<b>Ρυθμίσεις ήχου</b>'; const hb=document.createElement('button'); hb.textContent='Κρύψε'; hb.onclick=()=>setEl.classList.remove('show'); head.appendChild(hb); setEl.appendChild(head);
+  for(const c of CTRL){
+    if(c[0]==='h'){ const h=document.createElement('h4'); h.textContent=c[1]; setEl.appendChild(h); continue; }
+    if(c[0]==='notes'){ setEl.appendChild(buildNotes()); continue; }
+    if(c[0]==='matrix'){ setEl.appendChild(buildMatrix()); continue; }
+    const row=document.createElement('div'); row.className='row'; const key=c[1];
+    if(c[0]==='rng'){
+      const [,,label,min,max,step,fmt]=c;
+      row.innerHTML=`<label><span>${label}</span><b></b></label><input type="range" min="${min}" max="${max}" step="${step}">`;
+      const inp=row.querySelector('input'), val=row.querySelector('b');
+      const show=()=>{ inp.value=S[key]; val.textContent=fmt(+S[key]); inp.disabled = key==='thick' && S.thickAuto; inp.style.opacity=inp.disabled?.4:1; };
+      inp.oninput=()=>{ S[key]=+inp.value; show(); changed(); };
+      refreshers.push(show); show();
+    } else if(c[0]==='sel'){
+      row.innerHTML=`<label><span>${c[2]}</span></label><select style="width:100%">${c[3].map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select>`;
+      const sel=row.querySelector('select'); sel.value=S[key]; sel.onchange=()=>{ S[key]=sel.value; changed(); };
+      refreshers.push(()=>sel.value=S[key]);
+    } else {
+      row.innerHTML=`<label style="color:var(--fg)"><span>${c[2]}</span><input type="checkbox"></label>`;
+      const cb=row.querySelector('input'); cb.checked=S[key]; cb.onchange=()=>{ S[key]=cb.checked; refreshers.forEach(f=>f()); changed(); };
+      refreshers.push(()=>cb.checked=S[key]);
+    }
+    setEl.appendChild(row);
+  }
+  const rb=document.createElement('button'); rb.textContent='Επαναφορά προεπιλογών'; rb.style.marginTop='12px';
+  rb.onclick=()=>{ S=clone(DEFAULTS); refreshers.forEach(f=>f()); changed(); }; setEl.appendChild(rb);
+}
+function changed(){ saveSettings(); applyAudio(); retune(); refreshers.forEach(f=>f()); }
+buildSettings();
+document.getElementById('setBtn').addEventListener('click',()=>{ latEl.classList.remove('show'); libEl.classList.remove('show'); setEl.classList.toggle('show'); });
+['pointerdown','pointermove','pointerup'].forEach(ev=>setEl.addEventListener(ev,e=>e.stopPropagation()));
+
+/* ---------- Σχέδια: αποθήκευση / φόρτωση με όνομα ---------- */
+const libEl=document.getElementById('lib');
+const DKEY='arpa.designs';
+// Επιβεβαίωση με δεύτερο πάτημα (τα confirm()/alert() δεν δουλεύουν παντού, π.χ. σε σελίδες artifact)
+function twoTap(btn,fn,armedText,cond){
+  const orig=btn.textContent; let t=null;
+  btn.onclick=()=>{
+    if(t){ clearTimeout(t); t=null; btn.textContent=orig; btn.classList.remove('on'); fn(); return; }
+    if(cond && !cond()){ fn(); return; }
+    btn.textContent=typeof armedText==='function'?armedText():armedText; btn.classList.add('on');
+    t=setTimeout(()=>{ t=null; btn.textContent=orig; btn.classList.toggle('on',btn.dataset.keepOn==='1'); },3000);
+  };
+}
+let libNote='';
+function loadDesigns(){ try{ const a=JSON.parse(localStorage.getItem(DKEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function storeDesigns(a){ try{ localStorage.setItem(DKEY,JSON.stringify(a)); return true; }catch(e){ libNote='Δεν μπόρεσε να αποθηκευτεί (γεμάτος χώρος ή αποκλεισμένη αποθήκευση).'; return false; } }
+function currentDesign(name){
+  return { version:1, name, saved:new Date().toISOString(), sound, snap, settings:clone(S),
+    // θέσεις ως ποσοστά της οθόνης, ώστε να φορτώνουν σωστά σε άλλο μέγεθος
+    strings: strings.map(s=>({a:{x:s.a.x/W,y:s.a.y/H}, b:{x:s.b.x/W,y:s.b.y/H}, fixed:s.fixed})) };
+}
+function applyDesign(d){
+  if(d.settings){ const sv=d.settings, n=clone(DEFAULTS);
+    for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(n.m[i]) Object.assign(n.m[i],sv.m[i]); } else if(k in n) n[k]=sv[k]; }
+    S=n; saveSettings(); applyAudio(); refreshers.forEach(f=>f()); }
+  if(SOUNDS[d.sound]){ sound=d.sound; [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===sound)); }
+  snap=d.snap!==false; sb.classList.toggle('on',snap);
+  strings.length=0; pending=null; guide=null;
+  for(const s of d.strings||[]) addString({x:s.a.x*W,y:s.a.y*H},{x:s.b.x*W,y:s.b.y*H},s.fixed);
+  retune(); updCount();
+}
+function renderLib(){
+  const list=loadDesigns();
+  libEl.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b>Σχέδια χορδών</b></div>';
+  const hb=document.createElement('button'); hb.textContent='Κρύψε'; hb.onclick=()=>libEl.classList.remove('show'); libEl.firstChild.appendChild(hb);
+  const inp=document.createElement('input'); inp.type='text'; inp.placeholder='Όνομα σχεδίου'; inp.maxLength=60;
+  inp.value=libEl.dataset.name||''; inp.oninput=()=>libEl.dataset.name=inp.value;
+  const save=document.createElement('button'); save.className='on'; save.textContent='Αποθήκευση τρέχοντος';
+  const nameNow=()=>inp.value.trim()||('Σχέδιο '+(list.length+1));
+  save.dataset.keepOn='1';
+  twoTap(save,()=>{
+    if(!strings.length){ libNote='Δεν υπάρχουν χορδές για αποθήκευση.'; renderLib(); return; }
+    const name=nameNow(), i=list.findIndex(d=>d.name===name);
+    const d=currentDesign(name); if(i>=0) list[i]=d; else list.push(d);
+    libNote=storeDesigns(list)?('Αποθηκεύτηκε: «'+name+'»'):libNote; libEl.dataset.name=''; renderLib();
+  },()=>'Υπάρχει «'+nameNow()+'». Πάτα ξανά για αντικατάσταση',()=>list.some(d=>d.name===nameNow()));
+  inp.onkeydown=e=>{ if(e.key==='Enter') save.click(); };
+  libEl.append(inp,save);
+  if(libNote){ const m=document.createElement('div'); m.style.cssText='color:var(--acc);font-size:12px;margin-top:8px'; m.textContent=libNote; libEl.appendChild(m); libNote=''; }
+  const h=document.createElement('h4'); h.textContent='Αποθηκευμένα ('+list.length+')'; libEl.appendChild(h);
+  if(!list.length){ const e=document.createElement('div'); e.style.cssText='color:var(--dim);font-size:12px'; e.textContent='Κανένα ακόμα.'; libEl.appendChild(e); }
+  list.slice().reverse().forEach(d=>{
+    const row=document.createElement('div'); row.className='item';
+    const when=d.saved?new Date(d.saved).toLocaleDateString('el-GR'):'';
+    row.innerHTML='<div class="nm"><b></b><small></small></div>';
+    row.querySelector('b').textContent=d.name;
+    row.querySelector('small').textContent=(d.strings||[]).length+' χορδές · '+when;
+    const ld=document.createElement('button'); ld.textContent='Φόρτωση';
+    twoTap(ld,()=>{ applyDesign(d); libEl.classList.remove('show'); },'Αντικατάσταση; πάτα ξανά',()=>strings.length>0);
+    const rm=document.createElement('button'); rm.textContent='✕'; rm.title='Διαγραφή σχεδίου';
+    twoTap(rm,()=>{ storeDesigns(loadDesigns().filter(x=>x.name!==d.name)); renderLib(); },'Σίγουρα;');
+    row.append(ld,rm); libEl.appendChild(row);
+  });
+}
+document.getElementById('libBtn').addEventListener('click',()=>{ setEl.classList.remove('show'); latEl.classList.remove('show'); renderLib(); libEl.classList.toggle('show'); });
+['pointerdown','pointermove','pointerup'].forEach(ev=>libEl.addEventListener(ev,e=>e.stopPropagation()));
+
+/* ---------- Οδηγός μελωδίας ---------- */
+// Τραγούδια: [MIDI, διάρκεια σε χτύπους]. Δημόσιο κτήμα / παραδοσιακά.
+const SONGS={
+  ode:{name:'Ωδή στη χαρά (Μπετόβεν)', beat:480, notes:[
+    ...[64,64,65,67,67,65,64,62,60,60,62,64].map(m=>[m,1]),[64,1.5],[62,.5],[62,2],
+    ...[64,64,65,67,67,65,64,62,60,60,62,64].map(m=>[m,1]),[62,1.5],[60,.5],[60,2]]},
+  bday:{name:'Χρόνια πολλά (Happy Birthday)', beat:520, notes:[
+    [67,.75],[67,.25],[69,1],[67,1],[72,1],[71,2],  [67,.75],[67,.25],[69,1],[67,1],[74,1],[72,2],
+    [67,.75],[67,.25],[79,1],[76,1],[72,1],[71,1],[69,1],  [77,.75],[77,.25],[76,1],[72,1],[74,1],[72,2]]},
+  twinkle:{name:'Αστεράκι (Twinkle Twinkle)', beat:480, notes:[
+    [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2],
+    [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],  [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],
+    [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2]]},
+};
+let melLevel=1;
+let melEasy=false; try{ melEasy=localStorage.getItem('arpa.easy')==='1'; }catch(e){}
+let guide=null;      // {song, seq:[string], idx, level, lastAdv, demo, misses, doneAt, h}
+const melEl=document.getElementById('mel');
+const STALL={2:3000,3:6000};     // μετά από πόσο «κόλλημα» ξαναφαίνεται η βοήθεια στα επίπεδα 2 και 3
+
+function layoutGuide(key){
+  const song=SONGS[key], pitches=[...new Set(song.notes.map(n=>n[0]))].sort((a,b)=>a-b), n=pitches.length;
+  strings.length=0; pending=null;
+  const horiz=H>=W;                                        // πορτραίτο: οριζόντιες χορδές, η μία πάνω από την άλλη
+  const lo=horiz?140:70, hi=(horiz?H:W)-(horiz?150:70);
+  const spacing=Math.min(95,n>1?(hi-lo)/(n-1):0);
+  const mid=(lo+hi)/2, start=mid-spacing*(n-1)/2, byMidi=new Map();
+  pitches.forEach((m,i)=>{
+    const pos=horiz? start+(n-1-i)*spacing : start+i*spacing;   // ψηλή νότα: πάνω (πορτραίτο) / δεξιά (οριζόντια)
+    const a=horiz?{x:W*0.1,y:pos}:{x:pos,y:H*0.2}, b=horiz?{x:W*0.9,y:pos}:{x:pos,y:H*0.8};
+    byMidi.set(m,addString(a,b,m));
+  });
+  guide={key,song,seq:song.notes.map(([m])=>byMidi.get(m)),idx:0,level:guide?guide.level:melLevel,easy:melEasy,pop:null,lastAdv:performance.now(),demo:false,misses:0,doneAt:0,h:Math.min(34,spacing*0.38||34),timers:[]};
+  updCount(); hideHint();
+}
+function guideHit(s){
+  const g=guide, now=performance.now(); if(g.doneAt||g.idx>=g.seq.length) return;
+  if(g.easy){ g.idx++; g.lastAdv=now; if(g.idx>=g.seq.length) g.doneAt=now; return; }
+  if(s===g.seq[g.idx]){ g.idx++; g.lastAdv=now; if(g.idx>=g.seq.length) g.doneAt=now; }
+  else { s.missT=now; g.misses++; }
+}
+function arrowFor(s,h){        // βελάκι που διασχίζει ΜΟΝΟ τη συγκεκριμένη χορδή, κάθετα, στο 60% του μήκους
+  const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, L=Math.hypot(dx,dy)||1;
+  let nx=-dy/L, ny=dx/L; if(Math.abs(ny)>=Math.abs(nx)? ny<0 : nx<0){ nx=-nx; ny=-ny; }   // πάντα προς τα κάτω / δεξιά
+  const px=s.a.x+dx*0.6, py=s.a.y+dy*0.6;
+  return {x1:px-nx*h,y1:py-ny*h,x2:px+nx*h,y2:py+ny*h};
+}
+function guideState(now){
+  const g=guide; if(!g) return null;
+  if(g.seq.some(s=>!strings.includes(s))){ guide=null; return null; }    // χορδή διαγράφηκε: τέλος οδηγού
+  if(g.doneAt){
+    if(now-g.doneAt>3200){ if(g.level<3 && !g.easy) g.level++; g.idx=0; g.doneAt=0; g.lastAdv=now; g.misses=0; }
+    return {done:true,g,glow:false,arrow:false,target:null};
+  }
+  if(g.easy) return {g,easy:true,target:g.seq[g.idx],glow:false,arrow:false,done:false};
+  const stalled=g.level>1 && now-g.lastAdv>STALL[g.level];
+  return {g,target:g.seq[g.idx],glow:g.level<=2||stalled,arrow:g.level===1||stalled,done:false};
+}
+function drawSweep(now){      // διπλό βελάκι κάθετα στις χορδές: σύρε πάνω-κάτω (ή αριστερά-δεξιά)
+  const a=strings[0]; if(!a) return;
+  const horizStrings=Math.abs(a.b.x-a.a.x)>=Math.abs(a.b.y-a.a.y);
+  let lo=1e9,hi=-1e9; for(const s of strings) for(const p of [s.a,s.b]){ const v=horizStrings?p.y:p.x; lo=Math.min(lo,v); hi=Math.max(hi,v); }
+  lo-=26; hi+=26;
+  const c=horizStrings? a.a.x+(a.b.x-a.a.x)*0.6 : a.a.y+(a.b.y-a.a.y)*0.6;
+  const P=(v)=>horizStrings?[c,v]:[v,c];
+  const [x1,y1]=P(lo), [x2,y2]=P(hi), ang=Math.atan2(y2-y1,x2-x1);
+  cx.strokeStyle='rgba(255,214,120,.9)'; cx.fillStyle='rgba(255,214,120,.9)'; cx.lineWidth=3; cx.lineCap='round';
+  cx.setLineDash([7,6]); cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x2,y2); cx.stroke(); cx.setLineDash([]);
+  const head=(x,y,an)=>{ cx.beginPath(); cx.moveTo(x,y); cx.lineTo(x-14*Math.cos(an-0.5),y-14*Math.sin(an-0.5)); cx.lineTo(x-14*Math.cos(an+0.5),y-14*Math.sin(an+0.5)); cx.closePath(); cx.fill(); };
+  head(x2,y2,ang); head(x1,y1,ang+Math.PI);
+  const k=0.5+0.5*Math.sin(now/520); cx.beginPath(); cx.arc(x1+(x2-x1)*k,y1+(y2-y1)*k,5,0,7); cx.fillStyle='#fff'; cx.fill();   // κινούμενη τελίτσα πάνω-κάτω
+}
+function drawGuide(now,gs){
+  const g=gs.g; cx.globalCompositeOperation='source-over'; cx.textAlign='center'; cx.globalAlpha=1;
+  if(gs.done){
+    const nxt=g.easy?'Πάμε ξανά':(g.level<3?'Επόμενο επίπεδο: '+(g.level+1):'Πάμε ξανά χωρίς βοήθεια');
+    cx.fillStyle='rgba(255,255,255,.95)'; cx.font='bold 26px system-ui'; cx.fillText('Μπράβο! ♪',W/2,H*0.42);
+    cx.fillStyle='rgba(255,255,255,.65)'; cx.font='14px system-ui'; cx.fillText(g.song.name,W/2,H*0.42+26); cx.fillText(nxt,W/2,H*0.42+48);
+    if(Math.random()<0.25){ const s=strings[(Math.random()*strings.length)|0]; if(s) sparks(s,Math.random()); }
+  } else {
+    const t=gs.target, pulse=0.5+0.5*Math.sin(now/220);
+    if(gs.glow){                                            // φωτεινό περίγραμμα στη χορδή που πρέπει να χτυπηθεί
+      cx.globalCompositeOperation='lighter';
+      cx.beginPath(); cx.moveTo(t.a.x,t.a.y); cx.lineTo(t.b.x,t.b.y);
+      cx.strokeStyle='rgba(255,214,120,'+(0.18+0.22*pulse)+')'; cx.lineWidth=16; cx.lineCap='round'; cx.stroke();
+      cx.globalCompositeOperation='source-over';
+    }
+    if(gs.arrow){                                           // βελάκι: από πού ξεκινά το δάχτυλο ως πού καταλήγει
+      const {x1,y1,x2,y2}=arrowFor(t,g.h), ang=Math.atan2(y2-y1,x2-x1);
+      cx.strokeStyle='rgba(255,214,120,.95)'; cx.fillStyle='rgba(255,214,120,.95)'; cx.lineWidth=3; cx.lineCap='round';
+      cx.setLineDash([7,6]); cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x2,y2); cx.stroke(); cx.setLineDash([]);
+      cx.beginPath(); cx.arc(x1,y1,7,0,7); cx.fill();                                   // αρχή
+      cx.beginPath(); cx.arc(x1,y1,12,0,7); cx.lineWidth=1.5; cx.stroke();
+      cx.beginPath(); cx.moveTo(x2,y2); cx.lineTo(x2-14*Math.cos(ang-0.5),y2-14*Math.sin(ang-0.5)); cx.lineTo(x2-14*Math.cos(ang+0.5),y2-14*Math.sin(ang+0.5)); cx.closePath(); cx.fill();   // τέλος
+      const k=(now/650)%1; cx.beginPath(); cx.arc(x1+(x2-x1)*k,y1+(y2-y1)*k,4.5,0,7); cx.fillStyle='#fff'; cx.fill();   // κινούμενη τελίτσα
+    }
+    if(gs.easy) drawSweep(now);
+    cx.fillStyle='rgba(255,255,255,.8)'; cx.font='bold 15px system-ui';
+    cx.fillText((gs.easy?'Επόμενη νότα: ':'')+t.label,W/2,H-118);
+  }
+  if(g.pop && now-g.pop.born<800){                          // η νότα που μόλις έπαιξε, ανεβαίνει και σβήνει
+    const k=(now-g.pop.born)/800; cx.fillStyle='rgba(255,230,160,'+(1-k)+')'; cx.font='bold 20px system-ui'; cx.fillText(g.pop.text,g.pop.x,g.pop.y-14-28*k); }
+  const frac=g.idx/g.seq.length;                            // πρόοδος
+  cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(W*0.2,H-104,W*0.6,4);
+  cx.fillStyle='rgba(255,214,120,.9)'; cx.fillRect(W*0.2,H-104,W*0.6*frac,4);
+  cx.fillStyle='rgba(255,255,255,.55)'; cx.font='11px system-ui';
+  cx.fillText(g.song.name+' · νότα '+Math.min(g.idx+1,g.seq.length)+'/'+g.seq.length+(g.easy?' · εύκολη λειτουργία':' · επίπεδο '+g.level),W/2,H-90);
+  for(const s of strings) if(s.missT && now-s.missT<260){          // λάθος χορδή: κόκκινη λάμψη
+    cx.beginPath(); cx.moveTo(s.a.x,s.a.y); cx.lineTo(s.b.x,s.b.y); cx.strokeStyle='rgba(255,80,80,'+(0.7*(1-(now-s.missT)/260))+')'; cx.lineWidth=8; cx.stroke(); }
+  cx.globalCompositeOperation='lighter';       // όπως τα υπόλοιπα (σωματίδια) στο frame()
+}
+function stopDemo(){ if(guide){ guide.timers.forEach(clearTimeout); guide.timers=[]; guide.demo=false; } }
+function playDemo(){          // το πρόγραμμα παίζει το τραγούδι στις χορδές, για να το ακούσεις
+  if(!guide) return; initAudio(); stopDemo(); guide.demo=true;
+  let t=0; const g=guide, beat=g.song.beat;
+  g.song.notes.forEach(([m,d],i)=>{ const s=g.seq[i]; g.timers.push(setTimeout(()=>{ if(guide===g) pluck(s,0.6,1.0); },t)); t+=d*beat; });
+  g.timers.push(setTimeout(()=>{ if(guide===g) g.demo=false; },t+200));
+}
+function renderMel(){
+  melEl.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b>Οδηγός μελωδίας</b></div>';
+  const hb=document.createElement('button'); hb.textContent='Κρύψε'; hb.onclick=()=>melEl.classList.remove('show'); melEl.firstChild.appendChild(hb);
+  const sel=document.createElement('select'); sel.innerHTML=Object.entries(SONGS).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('');
+  if(guide) sel.value=guide.key;
+  const lv=document.createElement('div'); lv.className='lv';
+  [1,2,3].forEach(n=>{ const b=document.createElement('button'); b.textContent='Επίπεδο '+n; b.classList.toggle('on',(guide?guide.level:melLevel)===n);
+    b.onclick=()=>{ melLevel=n; if(guide){ guide.level=n; guide.lastAdv=performance.now(); } renderMel(); }; lv.appendChild(b); });
+  const easy=document.createElement('label'); easy.style.cssText='display:flex;gap:10px;align-items:flex-start;margin:10px 0;color:var(--fg);font-size:13px;line-height:1.4';
+  easy.innerHTML='<input type="checkbox" id="melEasy" style="margin-top:3px"><span><b>Εύκολη λειτουργία</b><br><span style="color:var(--dim);font-size:12px">Οι νότες μπαίνουν στη σειρά. Σύρε απλά το δάχτυλο πάνω-κάτω και κάτω-πάνω πάνω από τις χορδές, με όποια ταχύτητα θες: κάθε χορδή που περνάς παίζει την επόμενη νότα του τραγουδιού.</span></span>';
+  const cb=easy.querySelector('input'); cb.checked=melEasy;
+  cb.onchange=()=>{ melEasy=cb.checked; try{localStorage.setItem('arpa.easy',melEasy?'1':'0');}catch(e){} if(guide){ guide.easy=melEasy; guide.lastAdv=performance.now(); } renderMel(); };
+  lv.style.opacity=melEasy?0.4:1; lv.style.pointerEvents=melEasy?'none':'auto';
+  const go=document.createElement('button'); go.className='on'; go.textContent=guide?'Ξανά από την αρχή':'Ξεκίνα';
+  twoTap(go,()=>{ initAudio(); stopDemo(); layoutGuide(sel.value); melEl.classList.remove('show'); },'Οι χορδές σου θα αντικατασταθούν. Πάτα ξανά',()=>!guide&&strings.length>0);
+  const listen=document.createElement('button'); listen.textContent='▶ Άκουσέ το'; listen.onclick=()=>{ if(!guide){ initAudio(); layoutGuide(sel.value); } melEl.classList.remove('show'); playDemo(); };
+  const stop=document.createElement('button'); stop.textContent='Τέλος οδηγού'; stop.onclick=()=>{ stopDemo(); guide=null; renderMel(); };
+  const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;flex-wrap:wrap'; row.append(go,listen,stop);
+  const p=document.createElement('p');
+  p.innerHTML='Το πρόγραμμα στήνει μία χορδή για κάθε νότα του τραγουδιού. Ακολούθα το βελάκι: ξεκίνα το δάχτυλο από την τελίτσα με τον κύκλο και σύρε το ως την μύτη του βέλους, ώστε να χτυπήσεις μόνο εκείνη τη χορδή. Στο επίπεδο 2 φαίνεται μόνο η χορδή που ακολουθεί, στο 3 τίποτα (η βοήθεια επιστρέφει αν κολλήσεις). Όταν τελειώσεις το τραγούδι, ανεβαίνεις επίπεδο.';
+  melEl.append(sel,easy,lv,row,p);
+}
+document.getElementById('melBtn').addEventListener('click',()=>{ setEl.classList.remove('show'); latEl.classList.remove('show'); libEl.classList.remove('show'); renderMel(); melEl.classList.toggle('show'); });
+['setBtn','latBtn','libBtn'].forEach(id=>document.getElementById(id).addEventListener('click',()=>melEl.classList.remove('show')));
+['pointerdown','pointermove','pointerup'].forEach(ev=>melEl.addEventListener(ev,e=>e.stopPropagation()));
+
+/* ---------- UI ---------- */
+const sw=document.getElementById('sounds');
+Object.entries(SOUNDS).forEach(([k,s])=>{
+  const b=document.createElement('button'); b.textContent=s.name; b.dataset.k=k; if(k===sound)b.classList.add('on');
+  b.onclick=()=>{initAudio(); sound=k; [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===k));
+    strings.forEach(st=>st.hue=s.hue+((st.midi%12)*9)); };
+  sw.appendChild(b);
+});
+document.getElementById('undo').onclick=()=>{ if(pending){pending=null;return;} strings.pop(); updCount(); };
+document.getElementById('clear').onclick=()=>{ strings.length=0; pending=null; guide=null; updCount(); };
+const sb=document.getElementById('scaleBtn');
+sb.onclick=()=>{ snap=!snap; sb.classList.toggle('on',snap); retune(); };
+const hint=document.getElementById('hint');
+function hideHint(){ hint.style.opacity=0; }
+['pointerdown','pointermove','pointerup'].forEach(ev=>document.querySelectorAll('.bar').forEach(b=>b.addEventListener(ev,e=>e.stopPropagation())));
+
+/* ---------- Render ---------- */
+function frame(now){
+  const gs=guideState(now), guideDim=gs&&gs.glow, guideTarget=gs&&gs.target;
+  cx.globalCompositeOperation='source-over';
+  cx.fillStyle='rgba(5,6,10,0.35)'; cx.fillRect(0,0,W,H);
+  cx.globalCompositeOperation='lighter';
+
+  for(const s of strings){
+    const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, L=s.len, nx=-dy/L, ny=dx/L;
+    const el=(now-s.t0)/1000;
+    const amp = s.amp*Math.exp(-el*2.2);
+    const w = Math.min(60, s.freq/6);
+    const grow=Math.min(1,(now-s.born)/250);
+    const col=`hsl(${s.hue},95%,${60+Math.min(25,amp*1.5)}%)`, fade=s.deleting?0.22:(guideDim&&s!==guideTarget?0.4:1);   // αχνή = πάει να διαγραφεί ή δεν είναι η επόμενη του οδηγού
+    cx.lineCap='round';
+    const tk=0.5+1.7*s.th;   // πάχος γραμμής
+    for(const [lw0,al] of [[10,0.08],[4,0.25],[1.6,1]]){ const lw=lw0*tk;
+      cx.beginPath();
+      const segs=40;
+      for(let i=0;i<=segs;i++){
+        const u=i/segs*grow;
+        let off=0;
+        if(amp>0.05){
+          // plucked shape (triangle at pluck pos) evolving as standing wave
+          const tri = u<s.pos ? u/s.pos : (1-u)/(1-s.pos);
+          off = amp*(0.6*tri*Math.cos(el*w) + 0.4*Math.sin(Math.PI*u)*Math.sin(el*w*1.7));
+        }
+        const x=s.a.x+dx*u+nx*off, y=s.a.y+dy*u+ny*off;
+        i?cx.lineTo(x,y):cx.moveTo(x,y);
+      }
+      cx.strokeStyle=col; cx.globalAlpha=al*fade; cx.lineWidth=lw; cx.stroke();
+    }
+    cx.globalAlpha=fade;
+    for(const p of [s.a,s.b]){
+      cx.beginPath(); cx.arc(p.x,p.y,10,0,7); cx.strokeStyle=col; cx.globalAlpha=0.3*fade; cx.lineWidth=1.2; cx.stroke(); cx.globalAlpha=fade;   // ένδειξη ότι πιάνεται
+      cx.beginPath(); cx.arc(p.x,p.y,4,0,7); cx.fillStyle=col; cx.fill(); }
+    cx.globalAlpha=s.deleting?0.8:0.55; cx.fillStyle='#fff'; cx.font=s.deleting?'bold 18px system-ui':'11px system-ui'; cx.textAlign='center';
+    cx.fillText(s.deleting?'✕':s.label, s.a.x+dx*.5+nx*-14, s.a.y+dy*.5+ny*-14); cx.globalAlpha=1;
+  }
+
+  if(gs) drawGuide(now,gs);
+  if(pending){
+    const pulse=8+Math.sin(now/180)*3;
+    cx.beginPath(); cx.arc(pending.x,pending.y,pulse,0,7); cx.strokeStyle='rgba(124,243,255,.9)'; cx.lineWidth=2; cx.stroke();
+    cx.beginPath(); cx.arc(pending.x,pending.y,3,0,7); cx.fillStyle='#7cf3ff'; cx.fill();
+  }
+
+  for(const p of ptrs.values()) for(const t of p.trail) trails.push(t);
+  for(const p of ptrs.values()) p.trail.length=0;
+  for(let i=trails.length-1;i>=0;i--){ const t=trails[i]; t.life-=0.05; if(t.life<=0){trails.splice(i,1);continue;}
+    cx.beginPath(); cx.arc(t.x,t.y,5*t.life,0,7); cx.fillStyle=`rgba(180,240,255,${t.life*0.35})`; cx.fill(); }
+
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.x+=p.vx; p.y+=p.vy; p.vx*=.95; p.vy*=.95; p.life-=0.03;
+    if(p.life<=0){parts.splice(i,1);continue;}
+    cx.beginPath(); cx.arc(p.x,p.y,2.2*p.life,0,7); cx.fillStyle=`hsla(${p.hue},100%,75%,${p.life})`; cx.fill(); }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
