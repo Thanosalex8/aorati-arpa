@@ -37,8 +37,6 @@
   .top>button:not(.hd){order:1}
   #toast{position:fixed;left:50%;top:max(160px,calc(env(safe-area-inset-top) + 150px));transform:translateX(-50%);z-index:9;max-width:min(340px,90vw);text-align:center;font-size:14px;line-height:1.45;padding:12px 16px;border-radius:14px;background:rgba(5,6,10,.94);border:1px solid var(--acc);color:var(--fg);opacity:0;pointer-events:none;transition:opacity .3s}
   #toast.show{opacity:1}
-  #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:var(--dim);font-size:15px;line-height:1.55;pointer-events:none;z-index:1;width:min(320px,86vw);transition:opacity .5s}
-  #hint b{color:var(--fg)}
   #lat{position:fixed;left:10px;top:max(64px,calc(env(safe-area-inset-top) + 56px));z-index:3;display:none;background:rgba(5,6,10,.85);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--fg);max-width:min(300px,90vw)}
   #lat.show{display:block}
   #lat .pad{margin:6px 0;padding:14px;text-align:center;border-radius:10px;background:rgba(124,243,255,.15);border:1px solid var(--acc);color:var(--acc);font-weight:700;font-family:system-ui,sans-serif}
@@ -93,11 +91,6 @@
   <div class="snd" id="sounds"></div>
 </div>
 
-<div id="hint" data-en="<b>Tap a point</b> then <b>a second one</b><br>to stretch a string.<br><br><b>Drag your finger</b> across the strings<br>to play them.<br><br>Short string = high note · long = bass">
-  <b>Πάτα ένα σημείο</b> και μετά <b>ένα δεύτερο</b><br>για να τεντώσεις μια χορδή.<br><br>
-  <b>Σύρε το δάχτυλο</b> πάνω από τις χορδές<br>για να τις παίξεις.<br><br>
-  Κοντή χορδή = ψηλή νότα · μακριά = μπάσα
-</div>
 
 <script>
 (() => {
@@ -375,7 +368,8 @@ function segX(p1,p2,p3,p4){ // returns t along p3-p4 if segments intersect
   return (u>=0&&u<=1&&t>=0&&t<=1)?t:-1;
 }
 let evT=0;   // timeStamp του γεγονότος αφής που προκάλεσε το pluck
-function pluck(s,t,speed){
+let played=false;   // έχει παιχτεί έστω μία χορδή (τέλος οδηγιών)
+function pluck(s,t,speed){ played=true;
   const now=performance.now(); if(now-s.t0<45) return;
   const v=0.7+(Math.min(1,0.35+speed/2.2)-0.7)*S.vel;   // S.vel: 0 = ίδια ένταση πάντα, 1 = ανάλογη της ταχύτητας
   s.amp=Math.min(22, 8+speed*9); s.pos=Math.min(.9,Math.max(.1,t)); s.t0=now;
@@ -819,8 +813,7 @@ document.getElementById('undo').onclick=()=>{ if(pending){pending=null;return;} 
 document.getElementById('clear').onclick=()=>{ strings.length=0; pending=null; guide=null; updCount(); };
 const sb=document.getElementById('scaleBtn');
 sb.onclick=()=>{ snap=!snap; sb.classList.toggle('on',snap); retune(); };
-const hint=document.getElementById('hint');
-function hideHint(){ hint.style.opacity=0; }
+function hideHint(){}
 ['pointerdown','pointermove','pointerup'].forEach(ev=>document.querySelectorAll('.bar').forEach(b=>b.addEventListener(ev,e=>e.stopPropagation())));
 
 setLang(LANG);
@@ -866,6 +859,31 @@ function frame(now){
   }
 
   if(gs) drawGuide(now,gs);
+  /* οδηγίες με εικόνα (χωρίς λέξεις): 1) πάτα αριστερά 2) πάτα δεξιά 3) χτύπα τη χορδή από πάνω προς τα κάτω */
+  if(!guide && !played){
+    const ph=(now/1300)%1;
+    const dot=(x,y,lab)=>{
+      for(let k=0;k<2;k++){ const q=(ph+k*.5)%1; cx.beginPath(); cx.arc(x,y,10+q*34,0,7); cx.strokeStyle=`rgba(124,243,255,${.8*(1-q)})`; cx.lineWidth=2; cx.stroke(); }
+      cx.beginPath(); cx.arc(x,y,9,0,7); cx.fillStyle='rgba(124,243,255,.35)'; cx.fill();
+      cx.beginPath(); cx.arc(x,y,4,0,7); cx.fillStyle='#7cf3ff'; cx.fill(); };
+    if(!strings.length && !pending){ dot(W*.28,H*.5); }
+    else if(pending){
+      const tx = pending.x+W*.4<W-30 ? pending.x+W*.4 : Math.max(30,pending.x-W*.4), ty=pending.y;
+      cx.setLineDash([6,8]); cx.lineDashOffset=-now/40; cx.beginPath(); cx.moveTo(pending.x,pending.y); cx.lineTo(tx,ty);
+      cx.strokeStyle='rgba(124,243,255,.4)'; cx.lineWidth=1.5; cx.stroke(); cx.setLineDash([]);
+      dot(tx,ty);
+    } else if(strings.length){
+      const s=strings[strings.length-1], mx=(s.a.x+s.b.x)/2, my=(s.a.y+s.b.y)/2;
+      let nx=-(s.b.y-s.a.y)/s.len, ny=(s.b.x-s.a.x)/s.len;
+      if(ny<-1e-3||(Math.abs(ny)<=1e-3&&nx<0)){ nx=-nx; ny=-ny; }       // πάντα από πάνω προς τα κάτω
+      const L=Math.min(90,Math.max(50,H*.12)), q=ph, f=-L+2*L*q;
+      const x0=mx-nx*L, y0=my-ny*L, x1=mx+nx*L, y1=my+ny*L, hx=mx+nx*f, hy=my+ny*f;
+      cx.globalAlpha=.5; cx.beginPath(); cx.moveTo(x0,y0); cx.lineTo(x1,y1); cx.strokeStyle='#7cf3ff'; cx.lineWidth=2; cx.stroke();
+      const an=Math.atan2(ny,nx); cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x1-12*Math.cos(an-.45),y1-12*Math.sin(an-.45)); cx.moveTo(x1,y1); cx.lineTo(x1-12*Math.cos(an+.45),y1-12*Math.sin(an+.45)); cx.stroke();
+      cx.globalAlpha=1; cx.beginPath(); cx.arc(hx,hy,8,0,7); cx.fillStyle='#7cf3ff'; cx.fill();
+    }
+  }
+
   if(pending){
     const pulse=8+Math.sin(now/180)*3;
     cx.beginPath(); cx.arc(pending.x,pending.y,pulse,0,7); cx.strokeStyle='rgba(124,243,255,.9)'; cx.lineWidth=2; cx.stroke();
