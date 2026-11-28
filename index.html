@@ -359,7 +359,39 @@ function addString(a,b,fixed){
   applyPitch(s); strings.push(s); updCount(); hideHint(); return s;
 }
 function retune(){ strings.forEach(applyPitch); }
-function updCount(){ document.getElementById('count').textContent = strings.length+(strings.length===1?T(' χορδή',' string'):T(' χορδές',' strings')); }
+function updCount(){ const n=strings.length, d=drums.length;
+  document.getElementById('count').textContent = n+(n===1?T(' χορδή',' string'):T(' χορδές',' strings')) + (d?' · '+d+(d===1?T(' τύμπανο',' drum'):T(' τύμπανα',' drums')):''); }
+
+/* ---------- Τύμπανα: δεύτερο πάτημα στον ίδιο κύκλο ---------- */
+const drums=[];
+const DRUM_HUE=28;
+function addDrum(pt,r){
+  const d={x:pt.x,y:pt.y,r:r||Math.min(90,Math.max(50,Math.min(W,H)*0.13)),born:performance.now(),t0:0,amp:0};
+  drums.push(d); updCount(); return d;
+}
+const DRUM_MIN=28, drumMax=()=>Math.max(110,Math.min(W,H)*0.3);
+const drumGain=r=>0.35+0.75*clamp01((r-DRUM_MIN)/(drumMax()-DRUM_MIN));   // όσο πιο μεγάλο, τόσο πιο δυνατό
+// edge: 0 = κέντρο (βαθύς), 1 = άκρη (πιο ψηλός, περισσότερο «χτύπημα»). Μεγαλύτερο τύμπανο = πιο βαθύ.
+function drumSound(d,v,edge){
+  if(!ac) return;
+  const t=ac.currentTime, f=Math.min(180,Math.max(90,9000/d.r))*(1+edge*0.7), bus=ac.createGain(), wet=ac.createGain();
+  bus.gain.value=v*drumGain(d.r); wet.gain.value=0.25; bus.connect(master); bus.connect(wet); wet.connect(verb);
+  const o=envOsc('sine',f*2,t,0.003,0.6-edge*0.25,0.9,bus);
+  o.frequency.setValueAtTime(f*2,t); o.frequency.exponentialRampToValueAtTime(f,t+0.12);
+  envOsc('sine',f*1.59,t,0.002,0.22,0.3,bus); envOsc('sine',f*2.14,t,0.002,0.15,0.25,bus);   // αρμονικοί μεμβράνης: ακούγονται και σε μικρά ηχεία
+  const n=noiseSrc(), bp=ac.createBiquadFilter(), g=ac.createGain();
+  bp.type='bandpass'; bp.frequency.value=900+edge*2200; bp.Q.value=0.8;
+  g.gain.setValueAtTime(0.25+edge*0.35,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+  n.connect(bp); bp.connect(g); g.connect(bus); n.start(t); n.stop(t+0.12);
+}
+function hitDrum(d,x,y,v){
+  d.t0=performance.now(); d.amp=v;
+  drumSound(d,v,Math.min(1,Math.hypot(x-d.x,y-d.y)/d.r));
+  if(navigator.vibrate) try{navigator.vibrate(15)}catch(e){}
+  for(let i=0;i<10;i++){const an=Math.random()*Math.PI*2, sp=1+Math.random()*3.5;
+    parts.push({x,y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp,life:1,hue:DRUM_HUE});}
+}
+function drumAt(x,y){ for(let i=drums.length-1;i>=0;i--){ const d=drums[i]; if(Math.hypot(x-d.x,y-d.y)<=d.r+14) return d; } return null; }   // +14: η άκρη πιάνεται εύκολα με το δάχτυλο
 
 function segX(p1,p2,p3,p4){ // returns t along p3-p4 if segments intersect
   const d=(p2.x-p1.x)*(p4.y-p3.y)-(p2.y-p1.y)*(p4.x-p3.x); if(Math.abs(d)<1e-9) return -1;
@@ -429,6 +461,12 @@ cv.addEventListener('pointerdown',e=>{
     he.axis = Math.abs(he.s.b.x-he.s.a.x)>=Math.abs(he.s.b.y-he.s.a.y) ? 'x' : 'y';   // κύριος άξονας της χορδής
     he.sign = Math.sign(d[he.axis]-o[he.axis])||1;                                      // από ποια πλευρά της άλλης τελίτσας είναι
     ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[],drag:he}); return; }
+  const dr=drumAt(e.clientX,e.clientY);
+  if(dr && Math.hypot(e.clientX-dr.x,e.clientY-dr.y)>=Math.max(dr.r-16,dr.r*0.55)){   // άκρη: σύρε για να μεγαλώσει/μικρύνει
+    const off=dr.r-Math.hypot(e.clientX-dr.x,e.clientY-dr.y);
+    ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[],size:{d:dr,off,on:false}}); return; }
+  if(dr){ hitDrum(dr,e.clientX,e.clientY,0.9); latRecord(e.timeStamp);   // χτύπημα αμέσως· moved:true = δεν γίνεται άκρο χορδής
+    ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[]}); return; }
   ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:false,trail:[]});
 });
 cv.addEventListener('pointermove',e=>{
@@ -445,10 +483,22 @@ cv.addEventListener('pointermove',e=>{
       if(!s.deleting && s.midi!==old && now-(s.tPrev||0)>60){ s.tPrev=now; previewNote(s); }
       p.x=nx;p.y=ny;p.t=now; continue;
     }
+    if(p.size){
+      const z=p.size, d=z.d;
+      if(!z.on && Math.hypot(nx-p.x0,ny-p.y0)>8) z.on=true;
+      if(z.on){
+        const raw=Math.hypot(nx-d.x,ny-d.y)+z.off;       // αλλαγή μεγέθους: αθόρυβη
+        d.deleting=raw<DRUM_MIN;                             // πολύ μικρό: θα εξαφανιστεί όταν το αφήσεις
+        d.r=Math.min(drumMax(),Math.max(8,raw));
+      }
+      p.x=nx;p.y=ny;p.t=now; continue;
+    }
     if(!p.moved && Math.hypot(nx-p.x0,ny-p.y0)>12) p.moved=true;
     if(p.moved){
       const dt=Math.max(1,now-p.t), speed=Math.hypot(nx-p.x,ny-p.y)/dt;
       for(const s of strings){ const t=segX({x:p.x,y:p.y},{x:nx,y:ny},s.a,s.b); if(t>=0) pluck(s,t,speed); }
+      for(const d of drums){                             // σύρσιμο που μπαίνει στο τύμπανο το χτυπά
+        if(Math.hypot(p.x-d.x,p.y-d.y)>d.r && Math.hypot(nx-d.x,ny-d.y)<=d.r && now-d.t0>60){ hitDrum(d,nx,ny,Math.min(1,0.5+speed/3)); latRecord(evT); } }
       p.trail.push({x:nx,y:ny,life:1});
     }
     p.x=nx;p.y=ny;p.t=now;
@@ -464,10 +514,17 @@ function up(e){
     }
     s.deleting=false; return;
   }
+  if(p.size){
+    const {d,on}=p.size, cancel=e.type==='pointercancel';
+    if(d.deleting && !cancel){ const i=drums.indexOf(d); if(i>=0) drums.splice(i,1); updCount(); return; }
+    d.deleting=false; d.r=Math.max(DRUM_MIN,d.r);
+    if(!on && !cancel) hitDrum(d,p.x0,p.y0,0.9);         // απλό πάτημα στην άκρη = χτύπημα· μετά από αλλαγή μεγέθους σιωπή
+    return; }
   trails.push(...p.trail);
   if(p.moved || e.type==='pointercancel') return;
   const pt={x:p.x0,y:p.y0};
   if(!pending){ pending={...pt,born:performance.now()}; tick(660,0.15); }
+  else if(Math.hypot(pt.x-pending.x,pt.y-pending.y)<30){ const d=addDrum(pending); pending=null; hitDrum(d,d.x,d.y,0.7); }   // ίδιος κύκλος ξανά = τύμπανο
   else { addString(pending,pt); pending=null; }
 }
 cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
@@ -591,7 +648,8 @@ function storeDesigns(a){ try{ localStorage.setItem(DKEY,JSON.stringify(a)); ret
 function currentDesign(name){
   return { version:1, name, saved:new Date().toISOString(), sound, snap, settings:clone(S),
     // θέσεις ως ποσοστά της οθόνης, ώστε να φορτώνουν σωστά σε άλλο μέγεθος
-    strings: strings.map(s=>({a:{x:s.a.x/W,y:s.a.y/H}, b:{x:s.b.x/W,y:s.b.y/H}, fixed:s.fixed})) };
+    strings: strings.map(s=>({a:{x:s.a.x/W,y:s.a.y/H}, b:{x:s.b.x/W,y:s.b.y/H}, fixed:s.fixed})),
+    drums: drums.map(d=>({x:d.x/W, y:d.y/H, r:d.r/Math.min(W,H)})) };
 }
 function applyDesign(d){
   if(d.settings){ const sv=d.settings, n=clone(DEFAULTS);
@@ -599,7 +657,8 @@ function applyDesign(d){
     S=n; saveSettings(); applyAudio(); refreshers.forEach(f=>f()); }
   if(SOUNDS[d.sound]){ sound=d.sound; if(SOUNDS[sound].sf&&ac) sfLoad(SOUNDS[sound].sf,sound); [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===sound)); }
   snap=d.snap!==false; sb.classList.toggle('on',snap);
-  strings.length=0; pending=null; guide=null;
+  strings.length=0; drums.length=0; pending=null; guide=null;
+  for(const m of d.drums||[]) addDrum({x:m.x*W,y:m.y*H},m.r*Math.min(W,H));
   for(const s of d.strings||[]) addString({x:s.a.x*W,y:s.a.y*H},{x:s.b.x*W,y:s.b.y*H},s.fixed);
   retune(); updCount();
 }
@@ -613,7 +672,7 @@ function renderLib(){
   const nameNow=()=>inp.value.trim()||(T('Σχέδιο ','Design ')+(list.length+1));
   save.dataset.keepOn='1';
   twoTap(save,()=>{
-    if(!strings.length){ libNote=T('Δεν υπάρχουν χορδές για αποθήκευση.','There are no strings to save.'); renderLib(); return; }
+    if(!strings.length && !drums.length){ libNote=T('Δεν υπάρχει κάτι για αποθήκευση.','There is nothing to save.'); renderLib(); return; }
     const name=nameNow(), i=list.findIndex(d=>d.name===name);
     const d=currentDesign(name); if(i>=0) list[i]=d; else list.push(d);
     libNote=storeDesigns(list)?(T('Αποθηκεύτηκε: «','Saved: “')+name+T('»','”')):libNote; libEl.dataset.name=''; renderLib();
@@ -628,9 +687,9 @@ function renderLib(){
     const when=d.saved?new Date(d.saved).toLocaleDateString(LANG==='en'?'en-GB':'el-GR'):'';
     row.innerHTML='<div class="nm"><b></b><small></small></div>';
     row.querySelector('b').textContent=d.name;
-    row.querySelector('small').textContent=(d.strings||[]).length+T(' χορδές · ',' strings · ')+when;
+    row.querySelector('small').textContent=(d.strings||[]).length+T(' χορδές · ',' strings · ')+((d.drums||[]).length?d.drums.length+(d.drums.length===1?T(' τύμπανο · ',' drum · '):T(' τύμπανα · ',' drums · ')):'')+when;
     const ld=document.createElement('button'); ld.textContent=T('Φόρτωση','Load');
-    twoTap(ld,()=>{ applyDesign(d); libEl.classList.remove('show'); },T('Αντικατάσταση; πάτα ξανά','Replace? tap again'),()=>strings.length>0);
+    twoTap(ld,()=>{ applyDesign(d); libEl.classList.remove('show'); },T('Αντικατάσταση; πάτα ξανά','Replace? tap again'),()=>strings.length>0||drums.length>0);
     const rm=document.createElement('button'); rm.textContent='✕'; rm.title=T('Διαγραφή σχεδίου','Delete design');
     twoTap(rm,()=>{ storeDesigns(loadDesigns().filter(x=>x.name!==d.name)); renderLib(); },T('Σίγουρα;','Sure?'));
     row.append(ld,rm); libEl.appendChild(row);
@@ -809,8 +868,10 @@ function setLang(l){
 langBtn.onclick=()=>setLang(LANG==='en'?'el':'en');
 // όργανα που έχουν ήδη κατεβεί (από προηγούμενη φορά) παίρνουν κι αυτά το περίγραμμα
 if(window.caches) [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; if(so.sf) caches.match(new URL('sf/'+so.sf+'.json',document.baseURI)).then(r=>{ if(r) b.classList.add('dl'); }).catch(()=>{}); });
-document.getElementById('undo').onclick=()=>{ if(pending){pending=null;return;} strings.pop(); updCount(); };
-document.getElementById('clear').onclick=()=>{ strings.length=0; pending=null; guide=null; updCount(); };
+document.getElementById('undo').onclick=()=>{ if(pending){pending=null;return;}
+  const s=strings[strings.length-1], d=drums[drums.length-1];      // σβήνει ό,τι φτιάχτηκε τελευταίο
+  if(d && (!s || d.born>s.born)) drums.pop(); else strings.pop(); updCount(); };
+document.getElementById('clear').onclick=()=>{ strings.length=0; drums.length=0; pending=null; guide=null; updCount(); };
 const sb=document.getElementById('scaleBtn');
 sb.onclick=()=>{ snap=!snap; sb.classList.toggle('on',snap); retune(); };
 function hideHint(){}
@@ -824,6 +885,17 @@ function frame(now){
   cx.globalCompositeOperation='source-over';
   cx.fillStyle='rgba(5,6,10,0.35)'; cx.fillRect(0,0,W,H);
   cx.globalCompositeOperation='lighter';
+
+  for(const d of drums){
+    const el=Math.max(0,(now-d.t0)/1000), k=d.amp*Math.exp(-el*5), g=clamp01((now-d.born)/250);   // το now του καρέ μπορεί να προηγείται του αγγίγματος
+    const r=(8+(d.r-8)*(1-(1-g)*(1-g)))*(1+0.06*k*Math.cos(el*45));      // μεγαλώνει από τον μικρό κύκλο· πάλλεται στο χτύπημα
+    cx.globalAlpha=d.deleting?0.22:1;
+    cx.beginPath(); cx.arc(d.x,d.y,r,0,7); cx.fillStyle=`hsla(${DRUM_HUE},90%,55%,${.07+.18*k})`; cx.fill();
+    cx.strokeStyle=`hsl(${DRUM_HUE},95%,${60+25*k}%)`; cx.lineWidth=6+3*k; cx.stroke();
+    cx.beginPath(); cx.arc(d.x,d.y,r*0.8,0,7); cx.lineWidth=1; cx.stroke();
+    if(k>0.02){ const q=Math.min(1,el*3); cx.beginPath(); cx.arc(d.x,d.y,r*q,0,7); cx.lineWidth=2*k; cx.stroke(); }
+    cx.globalAlpha=1;
+  }
 
   for(const s of strings){
     const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, L=s.len, nx=-dy/L, ny=dx/L;
@@ -859,19 +931,25 @@ function frame(now){
   }
 
   if(gs) drawGuide(now,gs);
-  /* οδηγίες με εικόνα (χωρίς λέξεις): 1) πάτα αριστερά 2) πάτα δεξιά 3) χτύπα τη χορδή από πάνω προς τα κάτω */
-  if(!guide && !played){
+  /* οδηγίες με εικόνα και λέξεις: 1) πάτα αριστερά 2) πάτα ξανά για κρουστό ή δεξιά για χορδή 3) χτύπα τη χορδή */
+  const empty=!strings.length && !drums.length;      // κενή οθόνη (και μετά τον καθαρισμό): οι αρχικές οδηγίες ξαναφαίνονται πάντα
+  if(!guide && (empty || pending || (!played && strings.length))){
     const ph=(now/1300)%1;
     const dot=(x,y,lab)=>{
       for(let k=0;k<2;k++){ const q=(ph+k*.5)%1; cx.beginPath(); cx.arc(x,y,10+q*34,0,7); cx.strokeStyle=`rgba(124,243,255,${.8*(1-q)})`; cx.lineWidth=2; cx.stroke(); }
       cx.beginPath(); cx.arc(x,y,9,0,7); cx.fillStyle='rgba(124,243,255,.35)'; cx.fill();
       cx.beginPath(); cx.arc(x,y,4,0,7); cx.fillStyle='#7cf3ff'; cx.fill(); };
-    if(!strings.length && !pending){ dot(W*.28,H*.5); }
+    const label=(text,x,y)=>{ cx.save(); cx.globalCompositeOperation='source-over'; cx.font='600 14px system-ui'; cx.textAlign='center';
+      const hw=cx.measureText(text).width/2+10; x=Math.min(W-hw,Math.max(hw,x));       // να μη βγαίνει από την οθόνη
+      cx.fillStyle='rgba(5,6,10,.85)'; cx.fillRect(x-hw,y-14,hw*2,21); cx.fillStyle='#e8ecf5'; cx.fillText(text,x,y); cx.restore(); };
+    if(!strings.length && !pending){ dot(W*.28,H*.5); label(T('Πατήστε εδώ','Tap here'),W*.28,H*.5+66); }
     else if(pending){
       const tx = pending.x+W*.4<W-30 ? pending.x+W*.4 : Math.max(30,pending.x-W*.4), ty=pending.y;
       cx.setLineDash([6,8]); cx.lineDashOffset=-now/40; cx.beginPath(); cx.moveTo(pending.x,pending.y); cx.lineTo(tx,ty);
       cx.strokeStyle='rgba(124,243,255,.4)'; cx.lineWidth=1.5; cx.stroke(); cx.setLineDash([]);
-      dot(tx,ty);
+      dot(tx,ty); dot(pending.x,pending.y);      // η ένδειξη «πάτα» μένει και στο πρώτο σημείο
+      label(T('Πατήστε ξανά εδώ για κρουστό','Tap again here for drum'),pending.x,pending.y+66);
+      label(T('ή πατήστε εδώ για χορδή','or tap here for string'),tx,ty-56);
     } else if(strings.length){
       const s=strings[strings.length-1], mx=(s.a.x+s.b.x)/2, my=(s.a.y+s.b.y)/2;
       let nx=-(s.b.y-s.a.y)/s.len, ny=(s.b.x-s.a.x)/s.len;
