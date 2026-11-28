@@ -58,11 +58,11 @@
   .snd{display:flex;justify-content:safe center;gap:7px;overflow-x:auto;padding:14px 8px 10px;scrollbar-width:none;scroll-snap-type:x proximity;
     -webkit-mask-image:linear-gradient(to right,transparent,#000 18px,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(to right,transparent,#000 18px,#000 calc(100% - 18px),transparent);touch-action:pan-x}
   .snd::-webkit-scrollbar{display:none}
-  .sndRow{display:flex;align-items:center}
-  .sndRow .snd{flex:1;min-width:0}
-  .mode{flex:none;height:36px;min-width:46px;margin:4px 0 0 6px;padding:0 10px;border-radius:999px;font-size:13px;font-weight:700;
-    background:var(--surface-3);border:1px solid var(--line-2);color:var(--fg);transition:background .2s,border-color .2s,color .2s}
-  .mode.one{font-size:17px;background:var(--acc-bg);border-color:var(--acc-line);color:var(--acc)}
+  /* όργανο που σέρνεται πάνω σε χορδή */
+  #ghost{--h:190;position:fixed;left:0;top:0;z-index:10;pointer-events:none;display:none;align-items:center;gap:8px;height:36px;padding:0 14px 0 11px;border-radius:999px;
+    font-size:13px;font-weight:600;color:#fff;white-space:nowrap;background:hsla(var(--h),60%,22%,.95);border:1px solid hsla(var(--h),90%,65%,.8);box-shadow:0 10px 30px -8px #000,0 0 22px -6px hsla(var(--h),95%,60%,.9)}
+  #ghost::before{content:"";width:8px;height:8px;border-radius:50%;background:hsl(var(--h),90%,62%)}
+  #ghost.show{display:inline-flex}
   .snd button{--h:190;flex:none;scroll-snap-align:center;white-space:nowrap;height:36px;padding:0 14px 0 11px;border-radius:999px;font-size:13px;font-weight:550;
     background:var(--surface-2);border:1px solid var(--line);color:#c9cfdd;display:inline-flex;align-items:center;gap:8px;position:relative;
     transition:background .2s,border-color .2s,color .2s,box-shadow .25s}
@@ -195,6 +195,7 @@
   <button id="installBtn" class="chip" hidden><span data-en="Install">Εγκατάσταση</span></button>
 </header>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="ghost" aria-hidden="true"></div>
 
 <section id="set" class="sheet" role="dialog" aria-modal="false"></section>
 <section id="lib" class="sheet" role="dialog" aria-modal="false"></section>
@@ -210,10 +211,7 @@
 </section>
 
 <nav class="dock" id="dock">
-  <div class="sndRow">
-    <button id="sndMode" class="mode" aria-pressed="false"></button>
-    <div class="snd" id="sounds" role="radiogroup" aria-label="Όργανο"></div>
-  </div>
+  <div class="snd" id="sounds" role="radiogroup" aria-label="Όργανο"></div>
   <div class="acts">
     <button class="act on" id="scaleBtn" aria-pressed="true" title="Κούμπωμα σε κλίμακα" data-en-title="Snap to scale">
       <svg class="i" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span data-en="Scale">Κλίμακα</span></button>
@@ -516,15 +514,13 @@ function applyPitch(s){
   if(s.fixed!=null){ s.midi=s.fixed; s.freq=toFreq(s.fixed); s.label=NOTE_NAMES[((s.fixed%12)+12)%12]; }
   recolor(s);
 }
-// Όργανο ανά χορδή: s.snd = δικό της όργανο, null = το κοινό (sound). Στη λειτουργία «1» κάθε χορδή κρατά το δικό της.
-let sndMode='all'; try{ sndMode=localStorage.getItem('arpa.sndMode')==='one'?'one':'all'; }catch(e){}
-let selStr=null;     // η χορδή που άγγιξες τελευταία: σε αυτή μπαίνει το όργανο στη λειτουργία «1»
+// Όργανο ανά χορδή: s.snd = κλειδωμένο όργανο (το έσυρες πάνω της), null = ακολουθεί το κοινό (sound)
 const sndOf=s=>(s.snd&&SOUNDS[s.snd])?s.snd:sound;
 function recolor(s){ s.hue=SOUNDS[sndOf(s)].hue+((s.midi%12)*9); }
 function addString(a,b,fixed,snd){
   const len=Math.hypot(b.x-a.x,b.y-a.y); if(len<30) return null;
-  const s={a,b,len,amp:0,phase:0,pos:.5,t0:0,born:performance.now(),fixed:fixed==null?null:fixed,snd:snd||(sndMode==='one'?sound:null)};
-  applyPitch(s); strings.push(s); selStr=s; updCount(); hideHint(); return s;
+  const s={a,b,len,amp:0,phase:0,pos:.5,t0:0,born:performance.now(),fixed:fixed==null?null:fixed,snd:snd||null};
+  applyPitch(s); strings.push(s); updCount(); hideHint(); return s;
 }
 function retune(){ strings.forEach(applyPitch); }
 function updCount(){ const n=strings.length, d=drums.length;
@@ -588,7 +584,6 @@ function pluck(s,t,speed){ played=true;
   if(noteS!==s) guide.pop={text:noteS.label, x:s.a.x+(s.b.x-s.a.x)*t, y:s.a.y+(s.b.y-s.a.y)*t, born:now};
   toneFreq=f;
   SOUNDS[sndOf(noteS)].play(f,v);
-  if(!(guide&&guide.demo)){ selStr=s; if(sndMode==='one' && s.snd && s.snd!==sound){ sound=s.snd; markSound(false); } }   // η λωρίδα δείχνει το όργανο της χορδής
   latRecord(evT);
   if(navigator.vibrate) try{navigator.vibrate(8)}catch(e){}
   sparks(s,t);
@@ -651,7 +646,7 @@ cv.addEventListener('pointermove',e=>{
   for(const ev of (evs.length?evs:[e])){
     const nx=ev.clientX, ny=ev.clientY, now=performance.now(); evT=ev.timeStamp;
     if(p.drag){                                          // τράβηγμα τελίτσας: αλλάζει μήκος/θέση, άρα νότα
-      const {s,end}=p.drag, old=s.midi; selStr=s;
+      const {s,end}=p.drag, old=s.midi;
       s[end]={x:nx,y:ny}; s.len=Math.max(1,Math.hypot(s.b.x-s.a.x,s.b.y-s.a.y));
       applyPitch(s);
       const o=s[end==='a'?'b':'a'], diff=(p.drag.axis==='x'?nx-o.x:ny-o.y)*p.drag.sign;
@@ -708,7 +703,7 @@ function up(e){
   const pt={x:p.x0,y:p.y0};
   if(!pending){ pending={...pt,born:performance.now()}; tick(660,0.15); }
   else if(Math.hypot(pt.x-pending.x,pt.y-pending.y)<30){ const d=addDrum(pending); pending=null; hitDrum(d,d.x,d.y,0.7); }   // ίδιος κύκλος ξανά = τύμπανο
-  else { addString(pending,pt); pending=null; }
+  else { addString(pending,pt,null,pending.snd); pending=null; }   // pending.snd: ήρθε από σύρσιμο οργάνου = κλειδωμένη
 }
 cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
 const trails=[];
@@ -1219,32 +1214,73 @@ function renderMel(){
 const sw=document.getElementById('sounds');
 Object.entries(SOUNDS).forEach(([k,s])=>{
   const b=document.createElement('button'); b.textContent=T(s.name,s.en); b.dataset.k=k; b.style.setProperty('--h',s.hue); b.setAttribute('role','radio');
-  b.onclick=()=>pickSound(k);
+  // το κλικ που ακολουθεί ένα σύρσιμο δεν αλλάζει όλες τις χορδές
+  b.onclick=()=>{ if(chipDrag.justDropped){ chipDrag.justDropped=false; return; } initAudio(); setSound(k); dragTip(); };
+  b.addEventListener('pointerdown',e=>chipDown(e,b,k));
   sw.appendChild(b);
 });
 function markSound(scroll=true){ for(const x of sw.children){ const on=x.dataset.k===sound; x.classList.toggle('on',on); x.setAttribute('aria-checked',on); }
   const b=sw.querySelector('.on'); if(b&&scroll) sw.scrollTo({left:b.offsetLeft-(sw.clientWidth-b.offsetWidth)/2,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
-// Κοινό όργανο. Στη λειτουργία «Όλες» μπαίνει σε όλες τις χορδές· στη «1» μόνο στις καινούργιες.
-function setSound(k){ const s=SOUNDS[k]; sound=k; if(s.sf && ac) sfLoad(s.sf,k); markSound();
-  if(sndMode==='all') strings.forEach(st=>st.snd=null); strings.forEach(recolor); }
-// Πάτημα σε όργανο στη λωρίδα
-function pickSound(k){ initAudio();
-  const tgt=sndMode==='one' && strings.includes(selStr) ? selStr : null;
-  if(tgt) tgt.snd=k; setSound(k);
-  if(tgt){ previewNote(tgt); toast(T('Χορδή ','String ')+tgt.label+' → '+T(SOUNDS[k].name,SOUNDS[k].en),1600); }
+// Κοινό όργανο: αλλάζει όλες τις χορδές εκτός από τις κλειδωμένες
+function setSound(k){ const s=SOUNDS[k]; sound=k; if(s.sf && ac) sfLoad(s.sf,k); markSound(); strings.forEach(recolor); }
+// Συμβουλή στα πρώτα 3 κλικ σε όργανο, όσο υπάρχουν χορδές
+function dragTip(){ let n=0; try{ n=+localStorage.getItem('arpa.dragTip')||0; }catch(e){}
+  if(n>=3 || !strings.length) return; try{ localStorage.setItem('arpa.dragTip',n+1); }catch(e){}
+  toast(T('Συμβουλή: σύρε ένα όργανο πάνω σε μια χορδή για να την κλειδώσεις σε αυτό','Tip: drag an instrument onto a string to lock it to that instrument'),3600); }
+// ---- Σύρσιμο οργάνου πάνω σε χορδή: η χορδή κλειδώνει σε αυτό (ξανά το ίδιο = ξεκλείδωμα) ----
+const ghost=document.getElementById('ghost');
+const chipDrag={on:false,k:null,x:0,y:0,target:null,justDropped:false};
+function distSeg(px,py,s){ const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, L2=dx*dx+dy*dy||1, t=Math.max(0,Math.min(1,((px-s.a.x)*dx+(py-s.a.y)*dy)/L2));
+  return Math.hypot(px-(s.a.x+dx*t),py-(s.a.y+dy*t)); }
+function stringNear(x,y){ let best=null,bd=34; for(const s of strings){ const d=distSeg(x,y,s); if(d<bd){bd=d;best=s;} } return best; }
+// Με το δάχτυλο: η λωρίδα κυλά στο πλάι (touch-action:pan-x). Αν το δάχτυλο φύγει λοξά προς τα πάνω, ο browser
+// το έπαιρνε για κύλιση και ακύρωνε το σύρσιμο (pointercancel). Εδώ «κρατάμε» την κίνηση μόλις φανεί ότι πάει προς τα πάνω.
+{ let tx=0, ty=0, mine=false, decided=false;
+  sw.addEventListener('touchstart',e=>{ const t=e.touches[0]; tx=t.clientX; ty=t.clientY; mine=false; decided=false; },{passive:true});
+  sw.addEventListener('touchmove',e=>{
+    if(chipDrag.on || mine){ e.preventDefault(); return; }
+    if(decided) return;
+    const t=e.touches[0], dx=t.clientX-tx, dy=t.clientY-ty;
+    if(Math.hypot(dx,dy)<4) return;
+    decided=true; if(dy<0 && -dy>=Math.abs(dx)*0.7){ mine=true; e.preventDefault(); }
+  },{passive:false});
 }
-const modeBtn=document.getElementById('sndMode');
-function markMode(){ const one=sndMode==='one'; modeBtn.classList.toggle('one',one); modeBtn.setAttribute('aria-pressed',one);
-  modeBtn.textContent=one?'1':T('Όλες','All');
-  modeBtn.title=one?T('Όργανο για μία χορδή (αυτή που άγγιξες τελευταία). Πάτα για όλες μαζί','Instrument for one string (the last one you touched). Tap for all together')
-                   :T('Όργανο για όλες τις χορδές μαζί. Πάτα για μία μία','Instrument for all strings together. Tap for one at a time');
-  modeBtn.setAttribute('aria-label',modeBtn.title); }
-modeBtn.onclick=()=>{ sndMode=sndMode==='one'?'all':'one'; try{localStorage.setItem('arpa.sndMode',sndMode);}catch(e){}
-  if(sndMode==='one') strings.forEach(st=>{ if(!st.snd) st.snd=sound; });   // κάθε χορδή κρατά ό,τι είχε
-  markMode();
-  toast(sndMode==='one'?T('1: άγγιξε μια χορδή και διάλεξε όργανο μόνο για αυτήν','1: touch a string and pick an instrument just for it')
-                       :T('Όλες: το όργανο που θα διαλέξεις μπαίνει σε όλες τις χορδές','All: the instrument you pick goes to every string'),2800); };
-markSound(); markMode();
+function chipDown(e,b,k){
+  chipDrag.justDropped=false;
+  const x0=e.clientX, y0=e.clientY, id=e.pointerId; let started=false;
+  const move=ev=>{ if(ev.pointerId!==id) return;
+    const dx=ev.clientX-x0, dy=ev.clientY-y0;
+    if(!started){
+      if(Math.hypot(dx,dy)<10) return;
+      if(e.pointerType!=='mouse' && !(dy<0 && -dy>=Math.abs(dx)*0.7)){ end(); return; }   // στο πλάι ή κάτω: κύλιση της λωρίδας
+      started=true; chipDrag.on=true; chipDrag.k=k; initAudio();
+      ghost.textContent=T(SOUNDS[k].name,SOUNDS[k].en); ghost.style.setProperty('--h',SOUNDS[k].hue); ghost.classList.add('show');
+    }
+    ev.preventDefault();
+    chipDrag.x=ev.clientX; chipDrag.y=ev.clientY; chipDrag.target=stringNear(ev.clientX,ev.clientY-30);
+    ghost.style.transform=`translate(${ev.clientX-ghost.offsetWidth/2}px,${ev.clientY-56}px)`;
+  };
+  const up=ev=>{ if(ev.pointerId!==id) return; const t=chipDrag.target, was=started; end();
+    if(!was || ev.type==='pointercancel') return;
+    chipDrag.justDropped=true;   // καταναλώνεται από το κλικ που ίσως ακολουθήσει· μηδενίζεται σε κάθε νέο πάτημα (χωρίς χρονόμετρο: τα χρονόμετρα καθυστερούν)
+    if(!t){                                              // κενό σημείο: αρχίζει νέα χορδή κλειδωμένη σε αυτό το όργανο
+      const x=ev.clientX, y=ev.clientY-30;
+      if(y<INSET.top || y>H-INSET.bottom || drumAt(x,y)){ toast(T('Άφησέ το πάνω σε χορδή ή σε κενό σημείο','Drop it onto a string or an empty spot'),1800); return; }
+      pending={x,y,born:performance.now(),snd:k}; tick(660,0.15);
+      toast('🔒 '+T(SOUNDS[k].name,SOUNDS[k].en)+T(': πάτα εκεί που θες το άλλο άκρο της χορδής',': tap where you want the other end of the string'),2600); return; }
+    const nm=T(SOUNDS[k].name,SOUNDS[k].en);
+    if(t.snd===k){ t.snd=null; recolor(t); toast(T('Χορδή ','String ')+t.label+T(': ξεκλείδωσε, ακολουθεί ξανά όλες',': unlocked, follows the others again'),2200); }
+    else { t.snd=k; recolor(t); toast('🔒 '+T('Χορδή ','String ')+t.label+' → '+nm,2000); }
+    previewNote(t); t.t0=performance.now(); t.amp=8; t.pos=.5;
+  };
+  // ακούμε στο ίδιο το κουμπί με pointer capture: η βάση (dock) σταματά τα γεγονότα πριν φτάσουν στο window
+  const end=()=>{ b.removeEventListener('pointermove',move); b.removeEventListener('pointerup',up); b.removeEventListener('pointercancel',up);
+    try{ b.releasePointerCapture(id); }catch(_){}
+    chipDrag.on=false; chipDrag.target=null; ghost.classList.remove('show'); };
+  try{ b.setPointerCapture(id); }catch(_){}
+  b.addEventListener('pointermove',move); b.addEventListener('pointerup',up); b.addEventListener('pointercancel',up);
+}
+markSound();
 function applyStatic(){
   document.querySelectorAll('[data-en]').forEach(el=>{ if(el.dataset.el===undefined) el.dataset.el=el.innerHTML; el.innerHTML=LANG==='en'?el.dataset.en:el.dataset.el; });
   document.querySelectorAll('[data-en-title]').forEach(el=>{ if(el.dataset.elTitle===undefined) el.dataset.elTitle=el.title; el.title=LANG==='en'?el.dataset.enTitle:el.dataset.elTitle; });
@@ -1257,7 +1293,7 @@ function setLang(l){
   NOTE_NAMES=l==='en'?NOTE_NAMES_EN:NOTE_NAMES_EL;
   document.documentElement.lang=l; document.title=T('Αόρατη Άρπα','Invisible Harp');
   applyStatic(); langBtn.textContent=l==='en'?'EL':'EN';
-  [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; b.textContent=T(so.name,so.en); }); markMode();
+  [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; b.textContent=T(so.name,so.en); b.title=T('Κλικ: όλες οι χορδές · σύρε πάνω σε χορδή: μόνο αυτή','Click: all strings · drag onto a string: just that one'); });
   updCount(); buildSettings(); retune(); latRender();
   if(libEl.classList.contains('show')) renderLib();
   if(latEl.classList.contains('show')) latRender();
@@ -1354,12 +1390,16 @@ function frame(now){
       cx.strokeStyle=col; cx.globalAlpha=al*fade; cx.lineWidth=lw; cx.stroke();
     }
     cx.globalAlpha=fade;
-    if(sndMode==='one' && s===selStr && !guide) for(const p of [s.a,s.b]){ cx.beginPath(); cx.arc(p.x,p.y,15,0,7); cx.strokeStyle='rgba(255,255,255,.7)'; cx.lineWidth=2; cx.stroke(); }   // επιλεγμένη χορδή
+    if(chipDrag.on && s===chipDrag.target){                // εδώ θα πέσει το όργανο που σέρνεις
+      cx.beginPath(); cx.moveTo(s.a.x,s.a.y); cx.lineTo(s.b.x,s.b.y); cx.strokeStyle=`hsla(${SOUNDS[chipDrag.k].hue},95%,70%,.45)`; cx.lineWidth=18; cx.lineCap='round'; cx.stroke(); }
     for(const p of [s.a,s.b]){
       cx.beginPath(); cx.arc(p.x,p.y,10,0,7); cx.strokeStyle=col; cx.globalAlpha=0.3*fade; cx.lineWidth=1.2; cx.stroke(); cx.globalAlpha=fade;   // ένδειξη ότι πιάνεται
       cx.beginPath(); cx.arc(p.x,p.y,4,0,7); cx.fillStyle=col; cx.fill(); }
     cx.globalAlpha=s.deleting?0.8:0.55; cx.fillStyle='#fff'; cx.font=s.deleting?'bold 18px system-ui':'11px system-ui'; cx.textAlign='center';
-    cx.fillText(s.deleting?'✕':s.label, s.a.x+dx*.5+nx*-14, s.a.y+dy*.5+ny*-14); cx.globalAlpha=1;
+    cx.fillText(s.deleting?'✕':s.label, s.a.x+dx*.5+nx*-14, s.a.y+dy*.5+ny*-14);
+    if(s.snd && !s.deleting){ cx.globalAlpha=0.6; cx.font='10px system-ui'; cx.fillStyle=`hsl(${SOUNDS[s.snd].hue},90%,75%)`;   // κλειδωμένη: όνομα οργάνου κάτω από τη χορδή
+      cx.fillText('🔒 '+T(SOUNDS[s.snd].name,SOUNDS[s.snd].en), s.a.x+dx*.5+nx*18, s.a.y+dy*.5+ny*18+3); }
+    cx.globalAlpha=1;
   }
 
   syncButtons();
@@ -1402,9 +1442,9 @@ function frame(now){
   }
 
   if(pending){
-    const pulse=8+Math.sin(now/180)*3;
-    cx.beginPath(); cx.arc(pending.x,pending.y,pulse,0,7); cx.strokeStyle='rgba(124,243,255,.9)'; cx.lineWidth=2; cx.stroke();
-    cx.beginPath(); cx.arc(pending.x,pending.y,3,0,7); cx.fillStyle='#7cf3ff'; cx.fill();
+    const pulse=8+Math.sin(now/180)*3, pc=pending.snd?`hsl(${SOUNDS[pending.snd].hue},95%,65%)`:'#7cf3ff';   // στο χρώμα του οργάνου αν έρχεται από σύρσιμο
+    cx.beginPath(); cx.arc(pending.x,pending.y,pulse,0,7); cx.strokeStyle=pc; cx.lineWidth=2; cx.stroke();
+    cx.beginPath(); cx.arc(pending.x,pending.y,3,0,7); cx.fillStyle=pc; cx.fill();
   }
 
   for(const p of ptrs.values()) for(const t of p.trail) trails.push(t);
