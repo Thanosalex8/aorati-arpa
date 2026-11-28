@@ -58,6 +58,11 @@
   .snd{display:flex;justify-content:safe center;gap:7px;overflow-x:auto;padding:14px 8px 10px;scrollbar-width:none;scroll-snap-type:x proximity;
     -webkit-mask-image:linear-gradient(to right,transparent,#000 18px,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(to right,transparent,#000 18px,#000 calc(100% - 18px),transparent);touch-action:pan-x}
   .snd::-webkit-scrollbar{display:none}
+  .sndRow{display:flex;align-items:center}
+  .sndRow .snd{flex:1;min-width:0}
+  .mode{flex:none;height:36px;min-width:46px;margin:4px 0 0 6px;padding:0 10px;border-radius:999px;font-size:13px;font-weight:700;
+    background:var(--surface-3);border:1px solid var(--line-2);color:var(--fg);transition:background .2s,border-color .2s,color .2s}
+  .mode.one{font-size:17px;background:var(--acc-bg);border-color:var(--acc-line);color:var(--acc)}
   .snd button{--h:190;flex:none;scroll-snap-align:center;white-space:nowrap;height:36px;padding:0 14px 0 11px;border-radius:999px;font-size:13px;font-weight:550;
     background:var(--surface-2);border:1px solid var(--line);color:#c9cfdd;display:inline-flex;align-items:center;gap:8px;position:relative;
     transition:background .2s,border-color .2s,color .2s,box-shadow .25s}
@@ -205,7 +210,10 @@
 </section>
 
 <nav class="dock" id="dock">
-  <div class="snd" id="sounds" role="radiogroup" aria-label="Όργανο"></div>
+  <div class="sndRow">
+    <button id="sndMode" class="mode" aria-pressed="false"></button>
+    <div class="snd" id="sounds" role="radiogroup" aria-label="Όργανο"></div>
+  </div>
   <div class="acts">
     <button class="act on" id="scaleBtn" aria-pressed="true" title="Κούμπωμα σε κλίμακα" data-en-title="Snap to scale">
       <svg class="i" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span data-en="Scale">Κλίμακα</span></button>
@@ -253,20 +261,28 @@ const INPUTS=()=>[
   ['hitpos',T('Σημείο χτυπήματος (αριστερά ↔ δεξιά)','Hit point (left ↔ right)')],
   ['edge',T('Απόσταση χτυπήματος από το κέντρο','Hit distance from center')],
 ];
-const TARGETS=()=>[['note',T('Νότα','Note')],['bright',T('Φωτεινότητα','Brightness')],['vol',T('Ένταση','Volume')]];
-const DEFAULTS={vol:0.8, vel:1, bass:0, treble:0, shift:0, span:3, thickAuto:true, thick:0.4,
+const TARGETS=()=>[['note',T('Νότα','Note')],['dur',T('Διάρκεια','Duration')],['bright',T('Φωτεινότητα','Brightness')],['vol',T('Ένταση','Volume')]];
+// ver 2: το μήκος δίνει διάρκεια, το ύψος δίνει νότα (πάνω = ψιλή, κάτω = μπάσα)
+const DEFAULTS={ver:2, vol:0.8, vel:1, bass:0, treble:0, shift:0, span:3, thickAuto:true, thick:0.4,
   notes:[1,0,1,0,1,0,0,1,0,1,0,0],      // Ντο Ρε Μι Σολ Λα (πεντατονική)
-  m:{ len:{note:-1,bright:0,vol:0}, thick:{note:0,bright:-0.5,vol:0.2}, y:{note:0,bright:0,vol:0},
-      x:{note:0,bright:0,vol:0}, tilt:{note:0,bright:0,vol:0}, hitpos:{note:0,bright:0,vol:0},
-      edge:{note:0,bright:1,vol:-0.3} }};
+  m:{ len:{note:0,dur:1,bright:0,vol:0}, thick:{note:0,dur:0,bright:-0.5,vol:0.2}, y:{note:1,dur:0,bright:0,vol:0},
+      x:{note:0,dur:0,bright:0,vol:0}, tilt:{note:0,dur:0,bright:0,vol:0}, hitpos:{note:0,dur:0,bright:0,vol:0},
+      edge:{note:0,dur:0,bright:1,vol:-0.3} }};
 const clone=o=>JSON.parse(JSON.stringify(o));
 // Γλώσσα / Language: αποθηκεύεται· αρχικά από τη γλώσσα του browser
 let LANG='el'; try{ LANG=localStorage.getItem('arpa.lang')||((navigator.language||'el').toLowerCase().startsWith('el')?'el':'en'); }catch(e){}
 const T=(el,en)=>LANG==='en'?en:el;
 window.__T=T;
+// Ενώνει αποθηκευμένες ρυθμίσεις με τις προεπιλογές. Παλιές (χωρίς ver 2): μήκος→νότα γίνεται μήκος→διάρκεια, ύψος→νότα.
+function mergeSettings(sv){
+  const n=clone(DEFAULTS); if(!sv||typeof sv!=='object') return n;
+  for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(n.m[i]) Object.assign(n.m[i],sv.m[i]); } else if(k in n) n[k]=sv[k]; }
+  if(!(sv.ver>=2)){ n.m.len.note=0; n.m.len.dur=1; n.m.y.note=1; }
+  for(const i in n.m) for(const t in DEFAULTS.m[i]) if(typeof n.m[i][t]!=='number') n.m[i][t]=DEFAULTS.m[i][t];
+  n.ver=2; return n;
+}
 let S=clone(DEFAULTS);
-try{ const sv=JSON.parse(localStorage.getItem('arpa.settings')||'{}');
-  for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(S.m[i]) Object.assign(S.m[i],sv.m[i]); } else if(k in S) S[k]=sv[k]; } }catch(e){}
+try{ S=mergeSettings(JSON.parse(localStorage.getItem('arpa.settings')||'{}')); }catch(e){}
 const saveSettings=()=>{ try{localStorage.setItem('arpa.settings',JSON.stringify(S));}catch(e){} };
 
 /* ---------- Audio ---------- */
@@ -312,7 +328,7 @@ function karplus(freq, decay, bright, dur){
 }
 // Χροιά ανάλογα με το σημείο που χτυπιέται η χορδή:
 // Φωτεινότητα 0 = στρογγυλός, 1 = λαμπερός. Ορίζεται στο pluck() από τον πίνακα ιδιοτήτων.
-let toneB=0.5, toneV=1, toneFreq=440;   // toneB: φωτεινότητα 0..1, toneV: πολλαπλασιαστής έντασης (από τον πίνακα ιδιοτήτων)
+let toneB=0.5, toneV=1, toneFreq=440, toneDur=0.8;   // toneDur: διάρκεια νότας σε δευτερόλεπτα (από το μήκος της χορδής)   // toneB: φωτεινότητα 0..1, toneV: πολλαπλασιαστής έντασης (από τον πίνακα ιδιοτήτων)
 function out(node, vel, wet, raw){
   const pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
   const g = ac.createGain();
@@ -321,8 +337,11 @@ function out(node, vel, wet, raw){
   lp.frequency.value = Math.min(18000, Math.max(400, toneFreq*(3+k*16)));
   g.gain.value = vel*toneV;   // αντιστάθμιση: η μέση χάνει ενέργεια από το φίλτρο
   if(raw){ node.connect(g); } else { node.connect(lp); lp.connect(g); }   // raw: πραγματικά δείγματα, χωρίς φίλτρο που θαμπώνει τον ήχο
-  if(pan){ pan.pan.value = (Math.random()-.5)*.5; g.connect(pan); pan.connect(master); if(wet) pan.connect(verb);}
-  else { g.connect(master); if(wet) g.connect(verb); }
+  const env=ac.createGain(), t=ac.currentTime;            // διάρκεια: η νότα σβήνει μετά από toneDur (κοντή χορδή = κοφτή νότα)
+  env.gain.setValueAtTime(1,t); env.gain.setValueAtTime(1,t+toneDur*0.7); env.gain.exponentialRampToValueAtTime(0.0001,t+toneDur+0.08);
+  g.connect(env);
+  if(pan){ pan.pan.value = (Math.random()-.5)*.5; env.connect(pan); pan.connect(master); if(wet) pan.connect(verb);}
+  else { env.connect(master); if(wet) env.connect(verb); }
 }
 function envOsc(type,freq,t,a,dec,peak,dest,detune=0){
   const o=ac.createOscillator(), g=ac.createGain();
@@ -345,6 +364,7 @@ function breath(dest,t,f,amt,dur,q){ const n=noiseSrc(), bp=ac.createBiquadFilte
   n.connect(bp); bp.connect(g); g.connect(dest); n.start(t); n.stop(t+dur+0.05); }
 // Συνεχής νότα με φάκελο (πνευστά, δοξάρι, ακορντεόν, εκκλησιαστικό όργανο): προσοχή/σταθερό/απόσβεση + δόνηση (vibrato)
 function sustain(dest,{h,type='sawtooth',f,t,a=.05,hold=.6,rel=.6,peak=.3,vib=0,vr=5.5,det=[0]}){
+  hold*=toneDur/0.8;                                        // μακριά χορδή = κρατά περισσότερο
   const g=ac.createGain(), pk=peak/det.length; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(pk,t+a);
   g.gain.setValueAtTime(pk,t+a+hold); g.gain.exponentialRampToValueAtTime(0.0001,t+a+hold+rel); g.connect(dest);
   const end=t+a+hold+rel+.05; let lg=null;
@@ -375,7 +395,7 @@ function sfPlay(name,f,v){
   const e=SF[name]; if(!e||e.state!=='ready'||!e.keys.length) return false;
   const midi=69+12*Math.log2(f/440); let k=e.keys[0]; for(const x of e.keys) if(Math.abs(x-midi)<Math.abs(k-midi)) k=x;
   const src=ac.createBufferSource(); src.buffer=e.buf[k]; src.playbackRate.value=Math.pow(2,(midi-k)/12);
-  const t=ac.currentTime, dur=Math.min(3.2,src.buffer.duration/src.playbackRate.value), g=ac.createGain();
+  const t=ac.currentTime, dur=Math.min(toneDur+0.4,src.buffer.duration/src.playbackRate.value), g=ac.createGain();
   g.gain.setValueAtTime(1,t); g.gain.setValueAtTime(1,t+Math.max(0.1,dur-0.5)); g.gain.linearRampToValueAtTime(0,t+dur);
   src.connect(g); out(g,v*e.norm,true,true); src.start(t); src.stop(t+dur+0.05); return true;
 }
@@ -474,6 +494,8 @@ function snapMidi(midi){
   if(!on.length) return midi;                           // καμία νότα επιλεγμένη = ελεύθερο
   let best=on[0],bd=1e9; for(const m of on){ const d=Math.abs(m-midi); if(d<bd){bd=d;best=m;} } return best;
 }
+// Διάρκεια νότας: 0.15 s (πολύ κοντή χορδή) ως ~3.7 s (χορδή όσο η διαγώνιος). ×1.6 ώστε να ξεχωρίζει και σε κινητό.
+function durFrom(vals){ const d=clamp01(0.5+mix(vals,'dur')*1.6); return 0.15*Math.pow(25,d); }
 function midiFrom(vals){
   const x=clamp01(0.5+mix(vals,'note'));
   let midi=45+S.shift*12+x*S.span*12;                   // προεπιλογή: ~Λα2 .. Λα5
@@ -492,12 +514,17 @@ const strings=[];
 function applyPitch(s){
   Object.assign(s,pitchFor(s.a,s.b,s.len));
   if(s.fixed!=null){ s.midi=s.fixed; s.freq=toFreq(s.fixed); s.label=NOTE_NAMES[((s.fixed%12)+12)%12]; }
-  s.hue=SOUNDS[sound].hue+((s.midi%12)*9);
+  recolor(s);
 }
-function addString(a,b,fixed){
+// Όργανο ανά χορδή: s.snd = δικό της όργανο, null = το κοινό (sound). Στη λειτουργία «1» κάθε χορδή κρατά το δικό της.
+let sndMode='all'; try{ sndMode=localStorage.getItem('arpa.sndMode')==='one'?'one':'all'; }catch(e){}
+let selStr=null;     // η χορδή που άγγιξες τελευταία: σε αυτή μπαίνει το όργανο στη λειτουργία «1»
+const sndOf=s=>(s.snd&&SOUNDS[s.snd])?s.snd:sound;
+function recolor(s){ s.hue=SOUNDS[sndOf(s)].hue+((s.midi%12)*9); }
+function addString(a,b,fixed,snd){
   const len=Math.hypot(b.x-a.x,b.y-a.y); if(len<30) return null;
-  const s={a,b,len,amp:0,phase:0,pos:.5,t0:0,born:performance.now(),fixed:fixed==null?null:fixed};
-  applyPitch(s); strings.push(s); updCount(); hideHint(); return s;
+  const s={a,b,len,amp:0,phase:0,pos:.5,t0:0,born:performance.now(),fixed:fixed==null?null:fixed,snd:snd||(sndMode==='one'?sound:null)};
+  applyPitch(s); strings.push(s); selStr=s; updCount(); hideHint(); return s;
 }
 function retune(){ strings.forEach(applyPitch); }
 function updCount(){ const n=strings.length, d=drums.length;
@@ -546,19 +573,22 @@ function segX(p1,p2,p3,p4){ // returns t along p3-p4 if segments intersect
 }
 let evT=0;   // timeStamp του γεγονότος αφής που προκάλεσε το pluck
 let played=false;   // έχει παιχτεί έστω μία χορδή (τέλος οδηγιών)
+const TUTOR_MAX=3;  // οι αρχικές οδηγίες φαίνονται 3 φορές και μετά όχι
+let tutorN=0, tutorWas=false; try{ tutorN=+localStorage.getItem('arpa.tutor')||0; }catch(e){}
 function pluck(s,t,speed){ played=true;
   const now=performance.now(); if(now-s.t0<45) return;
   const v=0.7+(Math.min(1,0.35+speed/2.2)-0.7)*S.vel;   // S.vel: 0 = ίδια ένταση πάντα, 1 = ανάλογη της ταχύτητας
   s.amp=Math.min(22, 8+speed*9); s.pos=Math.min(.9,Math.max(.1,t)); s.t0=now;
   const u=s.flip?1-t:t;                                  // 0 = αριστερά, 1 = δεξιά
   const all={...s.props, hitpos:u, edge:Math.abs(2*u-1)};
-  toneB=clamp01(0.5+mix(all,'bright')); toneV=Math.pow(2,mix(all,'vol')*2);
+  toneB=clamp01(0.5+mix(all,'bright')); toneV=Math.pow(2,mix(all,'vol')*2); toneDur=durFrom(all);
   let noteS=s;                                           // εύκολη λειτουργία: όποια χορδή κι αν περάσεις, παίζει η επόμενη νότα του τραγουδιού
   if(guide && guide.easy && !guide.demo && !guide.doneAt && guide.idx<guide.seq.length && guide.seq[guide.idx].r==null) noteS=guide.seq[guide.idx];
   const f = noteS!==s ? noteS.freq : (s.fixed==null && (S.m.hitpos.note||S.m.edge.note)) ? toFreq(midiFrom(all)) : s.freq;   // το σημείο χτυπήματος αλλάζει τη νότα
   if(noteS!==s) guide.pop={text:noteS.label, x:s.a.x+(s.b.x-s.a.x)*t, y:s.a.y+(s.b.y-s.a.y)*t, born:now};
   toneFreq=f;
-  SOUNDS[sound].play(f,v);
+  SOUNDS[sndOf(noteS)].play(f,v);
+  if(!(guide&&guide.demo)){ selStr=s; if(sndMode==='one' && s.snd && s.snd!==sound){ sound=s.snd; markSound(false); } }   // η λωρίδα δείχνει το όργανο της χορδής
   latRecord(evT);
   if(navigator.vibrate) try{navigator.vibrate(8)}catch(e){}
   sparks(s,t);
@@ -589,7 +619,7 @@ function latRender(){
 }
 document.getElementById('latReset').addEventListener('click',()=>{lat.xs=[];latRender();});
 document.getElementById('latPad').addEventListener('pointerdown',e=>{
-  initAudio(); const t0=e.timeStamp; SOUNDS[sound].play(220,0.9); latRecord(t0);
+  initAudio(); const t0=e.timeStamp; toneB=0.5; toneV=1; toneFreq=220; toneDur=0.8; SOUNDS[sound].play(220,0.9); latRecord(t0);
 });
 ['pointerdown','pointermove','pointerup'].forEach(ev=>latEl.addEventListener(ev,e=>e.stopPropagation()));
 
@@ -621,7 +651,7 @@ cv.addEventListener('pointermove',e=>{
   for(const ev of (evs.length?evs:[e])){
     const nx=ev.clientX, ny=ev.clientY, now=performance.now(); evT=ev.timeStamp;
     if(p.drag){                                          // τράβηγμα τελίτσας: αλλάζει μήκος/θέση, άρα νότα
-      const {s,end}=p.drag, old=s.midi;
+      const {s,end}=p.drag, old=s.midi; selStr=s;
       s[end]={x:nx,y:ny}; s.len=Math.max(1,Math.hypot(s.b.x-s.a.x,s.b.y-s.a.y));
       applyPitch(s);
       const o=s[end==='a'?'b':'a'], diff=(p.drag.axis==='x'?nx-o.x:ny-o.y)*p.drag.sign;
@@ -689,7 +719,7 @@ function hitEnd(x,y){      // η πιο κοντινή τελίτσα μέσα �
     for(const end of ['a','b']){ const d=Math.hypot(s[end].x-x,s[end].y-y); if(d<bd){bd=d;best={s,end};} } }
   return best;
 }
-function previewNote(s){ if(!ac) return; toneB=0.5; toneV=1; toneFreq=s.freq; SOUNDS[sound].play(s.freq,0.35); }
+function previewNote(s){ if(!ac) return; toneB=0.5; toneV=1; toneFreq=s.freq; toneDur=durFrom(s.props); SOUNDS[s.snd||sound].play(s.freq,0.35); }
 function tick(f,v){ if(!ac) return; const t=ac.currentTime,g=ac.createGain(); g.connect(master); envOsc('sine',f,t,0.002,0.08,v,g); }
 
 /* ---------- Settings UI ---------- */
@@ -731,7 +761,7 @@ function buildMatrix(){
   const pct=v=>(v>0?'+':'')+Math.round(v*100)+'%';
   INPUTS().forEach(([k,label])=>{
     const row=document.createElement('div'); row.className='mx';
-    row.innerHTML=`<label><span>${label}</span></label><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"></div>`;
+    row.innerHTML=`<label><span>${label}</span></label><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 14px"></div>`;
     const grid=row.querySelector('div');
     TARGETS().forEach(([t,tl])=>{
       const cell=document.createElement('div');
@@ -790,7 +820,9 @@ function buildSettings(){
   twoTap(rb,()=>{ S=clone(DEFAULTS); refreshers.forEach(f=>f()); changed(); },T('Σίγουρα; πάτα ξανά','Sure? tap again'));
   const lb=document.createElement('button'); lb.textContent=T('Μέτρηση καθυστέρησης (ms)','Measure latency (ms)');
   lb.onclick=()=>{ initAudio(); latRender(); openPanel('lat'); };
-  tools.append(rb,lb); B.appendChild(tools);
+  const tb=document.createElement('button'); tb.textContent=T('Δείξε ξανά τις οδηγίες','Show the hints again');
+  tb.onclick=()=>{ tutorN=0; played=false; try{localStorage.setItem('arpa.tutor','0');}catch(e){} toast(T('Οι οδηγίες θα φανούν ξανά 3 φορές','The hints will show 3 more times')); };
+  tools.append(rb,lb,tb); B.appendChild(tools);
   const cr=document.createElement('p'); cr.style.cssText='font-size:11.5px;margin-top:18px';
   cr.textContent=T('Δείγματα οργάνων: FluidR3_GM του Frank Wen (CC BY 3.0), μέσω gleitz/midi-js-soundfonts.','Instrument samples: FluidR3_GM by Frank Wen (CC BY 3.0), via gleitz/midi-js-soundfonts.'); B.appendChild(cr);
   B.scrollTop=keepScroll;
@@ -818,18 +850,16 @@ function storeDesigns(a){ try{ localStorage.setItem(DKEY,JSON.stringify(a)); ret
 function currentDesign(name){
   return { version:1, name, saved:new Date().toISOString(), sound, snap, settings:clone(S),
     // θέσεις ως ποσοστά της οθόνης, ώστε να φορτώνουν σωστά σε άλλο μέγεθος
-    strings: strings.map(s=>({a:{x:s.a.x/W,y:s.a.y/H}, b:{x:s.b.x/W,y:s.b.y/H}, fixed:s.fixed})),
+    strings: strings.map(s=>({a:{x:s.a.x/W,y:s.a.y/H}, b:{x:s.b.x/W,y:s.b.y/H}, fixed:s.fixed, snd:s.snd||null})),
     drums: drums.map(d=>({x:d.x/W, y:d.y/H, r:d.r/Math.min(W,H)})) };
 }
 function applyDesign(d){
-  if(d.settings){ const sv=d.settings, n=clone(DEFAULTS);
-    for(const k in sv){ if(k==='m'){ for(const i in sv.m) if(n.m[i]) Object.assign(n.m[i],sv.m[i]); } else if(k in n) n[k]=sv[k]; }
-    S=n; saveSettings(); applyAudio(); refreshers.forEach(f=>f()); }
+  if(d.settings){ S=mergeSettings(d.settings); saveSettings(); applyAudio(); refreshers.forEach(f=>f()); }
   if(SOUNDS[d.sound]) setSound(d.sound);
   snap=d.snap!==false; sb.classList.toggle('on',snap); sb.setAttribute('aria-pressed',snap); cleared=null;
   strings.length=0; drums.length=0; pending=null; guide=null;
   for(const m of d.drums||[]) addDrum({x:m.x*W,y:m.y*H},m.r*Math.min(W,H));
-  for(const s of d.strings||[]) addString({x:s.a.x*W,y:s.a.y*H},{x:s.b.x*W,y:s.b.y*H},s.fixed);
+  for(const s of d.strings||[]) addString({x:s.a.x*W,y:s.a.y*H},{x:s.b.x*W,y:s.b.y*H},s.fixed,SOUNDS[s.snd]?s.snd:null);
   retune(); updCount();
 }
 function renderLib(){
@@ -1189,14 +1219,32 @@ function renderMel(){
 const sw=document.getElementById('sounds');
 Object.entries(SOUNDS).forEach(([k,s])=>{
   const b=document.createElement('button'); b.textContent=T(s.name,s.en); b.dataset.k=k; b.style.setProperty('--h',s.hue); b.setAttribute('role','radio');
-  b.onclick=()=>{initAudio(); setSound(k); };
+  b.onclick=()=>pickSound(k);
   sw.appendChild(b);
 });
-function markSound(){ for(const x of sw.children){ const on=x.dataset.k===sound; x.classList.toggle('on',on); x.setAttribute('aria-checked',on); }
-  const b=sw.querySelector('.on'); if(b) sw.scrollTo({left:b.offsetLeft-(sw.clientWidth-b.offsetWidth)/2,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
+function markSound(scroll=true){ for(const x of sw.children){ const on=x.dataset.k===sound; x.classList.toggle('on',on); x.setAttribute('aria-checked',on); }
+  const b=sw.querySelector('.on'); if(b&&scroll) sw.scrollTo({left:b.offsetLeft-(sw.clientWidth-b.offsetWidth)/2,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
+// Κοινό όργανο. Στη λειτουργία «Όλες» μπαίνει σε όλες τις χορδές· στη «1» μόνο στις καινούργιες.
 function setSound(k){ const s=SOUNDS[k]; sound=k; if(s.sf && ac) sfLoad(s.sf,k); markSound();
-  strings.forEach(st=>st.hue=s.hue+((st.midi%12)*9)); }
-markSound();
+  if(sndMode==='all') strings.forEach(st=>st.snd=null); strings.forEach(recolor); }
+// Πάτημα σε όργανο στη λωρίδα
+function pickSound(k){ initAudio();
+  const tgt=sndMode==='one' && strings.includes(selStr) ? selStr : null;
+  if(tgt) tgt.snd=k; setSound(k);
+  if(tgt){ previewNote(tgt); toast(T('Χορδή ','String ')+tgt.label+' → '+T(SOUNDS[k].name,SOUNDS[k].en),1600); }
+}
+const modeBtn=document.getElementById('sndMode');
+function markMode(){ const one=sndMode==='one'; modeBtn.classList.toggle('one',one); modeBtn.setAttribute('aria-pressed',one);
+  modeBtn.textContent=one?'1':T('Όλες','All');
+  modeBtn.title=one?T('Όργανο για μία χορδή (αυτή που άγγιξες τελευταία). Πάτα για όλες μαζί','Instrument for one string (the last one you touched). Tap for all together')
+                   :T('Όργανο για όλες τις χορδές μαζί. Πάτα για μία μία','Instrument for all strings together. Tap for one at a time');
+  modeBtn.setAttribute('aria-label',modeBtn.title); }
+modeBtn.onclick=()=>{ sndMode=sndMode==='one'?'all':'one'; try{localStorage.setItem('arpa.sndMode',sndMode);}catch(e){}
+  if(sndMode==='one') strings.forEach(st=>{ if(!st.snd) st.snd=sound; });   // κάθε χορδή κρατά ό,τι είχε
+  markMode();
+  toast(sndMode==='one'?T('1: άγγιξε μια χορδή και διάλεξε όργανο μόνο για αυτήν','1: touch a string and pick an instrument just for it')
+                       :T('Όλες: το όργανο που θα διαλέξεις μπαίνει σε όλες τις χορδές','All: the instrument you pick goes to every string'),2800); };
+markSound(); markMode();
 function applyStatic(){
   document.querySelectorAll('[data-en]').forEach(el=>{ if(el.dataset.el===undefined) el.dataset.el=el.innerHTML; el.innerHTML=LANG==='en'?el.dataset.en:el.dataset.el; });
   document.querySelectorAll('[data-en-title]').forEach(el=>{ if(el.dataset.elTitle===undefined) el.dataset.elTitle=el.title; el.title=LANG==='en'?el.dataset.enTitle:el.dataset.elTitle; });
@@ -1209,7 +1257,7 @@ function setLang(l){
   NOTE_NAMES=l==='en'?NOTE_NAMES_EN:NOTE_NAMES_EL;
   document.documentElement.lang=l; document.title=T('Αόρατη Άρπα','Invisible Harp');
   applyStatic(); langBtn.textContent=l==='en'?'EL':'EN';
-  [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; b.textContent=T(so.name,so.en); });
+  [...sw.children].forEach(b=>{ const so=SOUNDS[b.dataset.k]; b.textContent=T(so.name,so.en); }); markMode();
   updCount(); buildSettings(); retune(); latRender();
   if(libEl.classList.contains('show')) renderLib();
   if(latEl.classList.contains('show')) latRender();
@@ -1235,7 +1283,7 @@ clearBtn.onclick=()=>{ if(!strings.length && !drums.length && !pending) return;
   strings.length=0; drums.length=0; pending=null; guide=null; updCount();
   if(cleared) toast(T('Καθαρίστηκε · πάτα «Αναίρεση» για επαναφορά','Cleared · tap “Undo” to bring it back'),3200); };
 const sb=document.getElementById('scaleBtn');
-sb.onclick=()=>{ snap=!snap; sb.classList.toggle('on',snap); sb.setAttribute('aria-pressed',snap); retune(); toast(snap?T('Κλίμακα: οι νότες κουμπώνουν στην κλίμακα','Scale: notes snap to the scale'):T('Ελεύθερο: κάθε μήκος δίνει τη δική του νότα','Free: every length gives its own note'),2000); };
+sb.onclick=()=>{ snap=!snap; sb.classList.toggle('on',snap); sb.setAttribute('aria-pressed',snap); retune(); toast(snap?T('Κλίμακα: οι νότες κουμπώνουν στην κλίμακα','Scale: notes snap to the scale'):T('Ελεύθερο: κάθε ύψος δίνει τη δική του νότα','Free: every height gives its own note'),2000); };
 // Τα κουμπιά Αναίρεση / Καθαρισμός ενεργά μόνο όταν έχουν κάτι να κάνουν (ελέγχεται σε κάθε καρέ, αλλάζει το DOM μόνο σε αλλαγή)
 let btnState='';
 function syncButtons(){ const has=strings.length>0||drums.length>0, st=(has||pending||cleared?1:0)+''+(has||pending?1:0);
@@ -1306,6 +1354,7 @@ function frame(now){
       cx.strokeStyle=col; cx.globalAlpha=al*fade; cx.lineWidth=lw; cx.stroke();
     }
     cx.globalAlpha=fade;
+    if(sndMode==='one' && s===selStr && !guide) for(const p of [s.a,s.b]){ cx.beginPath(); cx.arc(p.x,p.y,15,0,7); cx.strokeStyle='rgba(255,255,255,.7)'; cx.lineWidth=2; cx.stroke(); }   // επιλεγμένη χορδή
     for(const p of [s.a,s.b]){
       cx.beginPath(); cx.arc(p.x,p.y,10,0,7); cx.strokeStyle=col; cx.globalAlpha=0.3*fade; cx.lineWidth=1.2; cx.stroke(); cx.globalAlpha=fade;   // ένδειξη ότι πιάνεται
       cx.beginPath(); cx.arc(p.x,p.y,4,0,7); cx.fillStyle=col; cx.fill(); }
@@ -1316,8 +1365,11 @@ function frame(now){
   syncButtons();
   if(gs) drawGuide(now,gs);
   /* οδηγίες με εικόνα και λέξεις: 1) πάτα αριστερά 2) πάτα ξανά για κρουστό ή δεξιά για χορδή 3) χτύπα τη χορδή */
-  const empty=!strings.length && !drums.length;      // κενή οθόνη (και μετά τον καθαρισμό): οι αρχικές οδηγίες ξαναφαίνονται πάντα
-  if(!guide && (empty || pending || (!played && strings.length))){
+  const empty=!strings.length && !drums.length;      // κενή οθόνη (και μετά τον καθαρισμό): οι αρχικές οδηγίες ξαναφαίνονται
+  const showTut = tutorN<TUTOR_MAX && !guide && (empty || pending || (!played && strings.length));
+  if(tutorWas && !showTut && !guide){ tutorN++; try{localStorage.setItem('arpa.tutor',tutorN);}catch(e){} }   // μία «φορά» = οι οδηγίες φάνηκαν και ο χρήστης τις ακολούθησε
+  tutorWas=showTut;
+  if(showTut){
     const ph=(now/1300)%1;
     const dot=(x,y,lab)=>{
       for(let k=0;k<2;k++){ const q=(ph+k*.5)%1; cx.beginPath(); cx.arc(x,y,10+q*34,0,7); cx.strokeStyle=`rgba(124,243,255,${.8*(1-q)})`; cx.lineWidth=2; cx.stroke(); }
