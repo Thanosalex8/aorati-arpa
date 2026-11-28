@@ -47,6 +47,11 @@
   #mel .lv{display:flex;gap:6px;margin:6px 0}
   #mel .lv button{flex:1}
   #mel p{color:var(--dim);font-size:12px;line-height:1.5;margin:8px 0}
+  #mel input[type=text],#mel textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--fg);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:9px 11px;margin:6px 0}
+  #mel textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre;overflow-x:auto;min-height:150px;resize:vertical}
+  #mel input[type=range]{width:100%;accent-color:var(--acc)}
+  #mel .msg{font-size:12px;margin:4px 0;line-height:1.4}
+  #mel code{background:rgba(255,255,255,.1);border-radius:4px;padding:0 4px;color:var(--fg)}
   #lib .item{display:flex;align-items:center;gap:6px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:12px}
   #lib .item .nm{flex:1;min-width:0}
   #lib .item .nm b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -764,6 +769,73 @@ const SONGS={
 };
 const isDrumNote=n=>typeof n[0]==='string';
 const DRUM_KIND={K:{r:1,el:'Μεγάλο τύμπανο',en:'Kick drum',edge:0}, S:{r:0.72,el:'Ταμπούρο',en:'Snare',edge:0.85}};
+
+/* ---------- Δικά σου τραγούδια: νότες ή ταμπλατούρα κιθάρας ---------- */
+// Νότες: «Μι Μι Φα Σολ», «E E F G», με οκτάβα (Μι5), διάρκεια (Μι:2, Μι:1/2), «-» = κράτα περισσότερο, K / S = τύμπανα.
+// Ταμπλατούρα: επικόλλησε τις 6 γραμμές (e|--0--2--) όπως είναι. Αναγνωρίζεται μόνη της.
+const NOTE_PC={c:0,d:2,e:4,f:5,g:7,a:9,b:11, 'ντο':0,'do':0,'ρε':2,'re':2,'μι':4,'mi':4,'φα':5,'fa':5,'σολ':7,'sol':7,'λα':9,'la':9,'σι':11,'si':11};
+const noAcc=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function parseDur(x){ if(!x) return 1; const m=x.match(/^(\d+(?:\.\d+)?)(?:\/(\d+(?:\.\d+)?))?$/); if(!m) return NaN; return m[2]?(+m[1])/(+m[2]):+m[1]; }
+function parseNotesText(txt){
+  const out=[], bad=[];
+  for(const raw of txt.split(/[\s,;|]+/).filter(Boolean)){
+    const t=noAcc(raw).replace('♯','#').replace('♭','b');
+    if(/^-+$/.test(t)){ if(out.length) out[out.length-1][1]+=t.length; continue; }      // «-» = κράτα την προηγούμενη
+    let m=t.match(/^(k|s|τυμπανο|ταμπουρο|τ|τα)(?::(.+))?$/);
+    if(m){ const d=parseDur(m[2]); if(!(d>0)){ bad.push(raw); continue; } out.push([/^(s|ταμπουρο|τα)$/.test(m[1])?'S':'K',d]); continue; }
+    m=t.match(/^(ντο|ρε|μι|φα|σολ|λα|σι|do|re|mi|fa|sol|la|si|[a-g])(#|b)?(-?\d)?(?::(.+))?$/);
+    if(!m){ bad.push(raw); continue; }
+    const midi=(m[3]!=null?+m[3]+1:5)*12+NOTE_PC[m[1]]+(m[2]==='#'?1:m[2]==='b'?-1:0), d=parseDur(m[4]);
+    if(!(d>0) || midi<28 || midi>100){ bad.push(raw); continue; }
+    out.push([midi,d]);
+  }
+  return {notes:out,bad};
+}
+const TAB_LINE=/^\s*([A-Ga-g][#b]?)?\s*[|:]?[-0-9|hpbrx\/\\~^.()s=*<> ]*-[-0-9|hpbrx\/\\~^.()s=*<> ]*$/;
+function isTabLine(l){ return TAB_LINE.test(l) && (l.match(/-/g)||[]).length>=3; }
+function parseTab(txt){
+  const lines=txt.replace(/\t/g,'    ').split(/\r?\n/), blocks=[]; let cur=[];
+  for(const l of lines){ if(isTabLine(l)) cur.push(l); else { if(cur.length) blocks.push(cur); cur=[]; } }
+  if(cur.length) blocks.push(cur);
+  const out=[]; let skipped=0;
+  for(const b of blocks){
+    if(b.length<4 || b.length>7){ skipped++; continue; }
+    const std=b.length>=6?[64,59,55,50,45,40,35]:[43,38,33,28];   // κιθάρα (από πάνω: ψιλή Μι) ή μπάσο
+    const rows=b.map((l,i)=>{
+      const m=l.match(/^\s*([A-Ga-g][#b]?)?\s*[|:]?/), lab=m[1];
+      let open=std[i];
+      if(lab){ const pc=(NOTE_PC[lab[0].toLowerCase()]+(lab[1]==='#'?1:lab[1]==='b'?-1:0)+12)%12;   // άλλο κούρδισμα, π.χ. Drop D
+        const d=((pc-open%12)+18)%12-6; open+=d; }
+      return {open,str:l.slice(m[0].length)};
+    });
+    const W2=Math.max(...rows.map(r=>r.str.length)), ev=[];
+    for(let c=0;c<W2;c++){
+      const hit=[];
+      rows.forEach(r=>{ const ch=r.str[c], prev=r.str[c-1];
+        if(/\d/.test(ch) && !/\d/.test(prev||'')){ let num=ch; if(/\d/.test(r.str[c+1]||'') && +(ch+r.str[c+1])<=24) num+=r.str[c+1]; hit.push(r.open+(+num)); } });
+      if(hit.length) ev.push({c,notes:hit.sort((a,b)=>a-b)});
+    }
+    ev.forEach((e,i)=>{ const gap=(i+1<ev.length?ev[i+1].c:W2)-e.c, d=Math.max(0.25,Math.min(4,gap*0.25));
+      e.notes.forEach((m,j)=>out.push([m, j<e.notes.length-1?0.12:d])); });   // συγχορδία = γρήγορο άρπισμα από κάτω προς τα πάνω
+  }
+  return {notes:out,blocks:blocks.length-skipped};
+}
+function parseSongText(txt){
+  const tabLines=txt.split(/\r?\n/).filter(isTabLine).length;
+  if(tabLines>=4){ const r=parseTab(txt); return {notes:r.notes,bad:[],tab:true,blocks:r.blocks}; }
+  return {...parseNotesText(txt),tab:false};
+}
+let mySongs=[]; try{ mySongs=JSON.parse(localStorage.getItem('arpa.songs')||'[]'); }catch(e){}
+function storeMySongs(){ try{ localStorage.setItem('arpa.songs',JSON.stringify(mySongs)); }catch(e){} }
+function syncMySongs(){
+  for(const k of Object.keys(SONGS)) if(k.startsWith('u_')) delete SONGS[k];
+  mySongs.forEach(u=>{ const r=parseSongText(u.text); if(!r.notes.length) return;
+    SONGS['u_'+u.id]={name:'★ '+u.name, en:'★ '+u.name, beat:u.beat, sound:u.sound||undefined, notes:r.notes, mine:true,
+      drumsMark:r.notes.some(isDrumNote)}; });
+}
+syncMySongs();
+let melEdit=null;   // {id?, name, text, beat, sound} όσο είναι ανοιχτός ο επεξεργαστής
+
 let melLevel=1;
 let melEasy=false; try{ melEasy=localStorage.getItem('arpa.easy')==='1'; }catch(e){}
 let guide=null;      // {song, seq:[string], idx, level, lastAdv, demo, misses, doneAt, h}
@@ -886,11 +958,55 @@ function playDemo(){          // το πρόγραμμα παίζει το τρ�
   g.song.notes.forEach(([m,d],i)=>{ const s=g.seq[i]; g.timers.push(setTimeout(()=>{ if(guide!==g) return; if(s.r!=null) hitDrum(s,s.x+s.r*DRUM_KIND[s.kind].edge,s.y,0.85); else pluck(s,0.6,1.0); },t)); t+=d*beat; });
   g.timers.push(setTimeout(()=>{ if(guide===g) g.demo=false; },t+200));
 }
+function renderEditor(){
+  const e=melEdit;
+  melEl.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b>'+(e.id?T('Επεξεργασία τραγουδιού','Edit song'):T('Δικό μου τραγούδι','My own song'))+'</b></div>';
+  const back=document.createElement('button'); back.textContent=T('← Πίσω','← Back'); back.onclick=()=>{ melEdit=null; renderMel(); }; melEl.firstChild.appendChild(back);
+  const nm=document.createElement('input'); nm.type='text'; nm.placeholder=T('Όνομα τραγουδιού','Song name'); nm.value=e.name; nm.oninput=()=>e.name=nm.value;
+  const ta=document.createElement('textarea'); ta.value=e.text; ta.spellcheck=false; ta.autocapitalize='off';
+  ta.placeholder=T('Γράψε νότες, π.χ.\nΜι Μι Φα Σολ Σολ Φα Μι Ρε\n\nή επικόλλησε ταμπλατούρα:\ne|-------0---|\nB|-----1-----|\nG|---0-------|\nD|-2---------|\nA|-----------|\nE|-----------|',
+    'Type notes, e.g.\nE E F G G F E D\n\nor paste guitar tab:\ne|-------0---|\nB|-----1-----|\nG|---0-------|\nD|-2---------|\nA|-----------|\nE|-----------|');
+  const msg=document.createElement('div'); msg.className='msg';
+  const check=()=>{ e.text=ta.value; const r=parseSongText(ta.value), n=r.notes.filter(x=>!isDrumNote(x)), pitches=new Set(n.map(x=>x[0])).size, dr=r.notes.length-n.length;
+    if(!ta.value.trim()){ msg.innerHTML=''; return r; }
+    let h=r.tab?'🎸 '+T('Ταμπλατούρα: ','Tab: '):'';
+    h+=n.length+T(' νότες',' notes')+(dr?' + '+dr+T(' χτυπήματα τυμπάνου',' drum hits'):'')+' · '+pitches+T(' χορδές',' strings');
+    if(r.bad.length) h+='<br><span style="color:#ff8a8a">'+T('Δεν κατάλαβα: ','Not understood: ')+r.bad.slice(0,6).map(b=>b.replace(/[<&]/g,'')).join(', ')+'</span>';
+    if(pitches>18) h+='<br><span style="color:#ffd27a">'+T('Πολλές διαφορετικές νότες: οι χορδές θα είναι πολύ κοντά. Δοκίμασε μικρότερο κομμάτι.','Many different notes: strings will be very close. Try a shorter part.')+'</span>';
+    msg.innerHTML=h; return r; };
+  ta.oninput=check;
+  const spL=document.createElement('div'); spL.className='msg';
+  const sp=document.createElement('input'); sp.type='range'; sp.min=150; sp.max=900; sp.step=10; sp.value=1050-e.beat;   // δεξιά = πιο γρήγορα
+  const spT=()=>spL.textContent=T('Ταχύτητα: ','Speed: ')+Math.round(60000/e.beat)+' bpm';
+  sp.oninput=()=>{ e.beat=1050-(+sp.value); spT(); }; spT();
+  const so=document.createElement('select'); so.innerHTML='<option value="">'+T('Όργανο: όποιο είναι επιλεγμένο','Instrument: whichever is selected')+'</option>'+Object.entries(SOUNDS).map(([k,v])=>`<option value="${k}">${T(v.name,v.en)}</option>`).join('');
+  so.value=e.sound||''; so.onchange=()=>e.sound=so.value;
+  const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;flex-wrap:wrap;margin-top:6px';
+  const save=()=>{ const r=check(); if(!r.notes.length){ msg.innerHTML='<span style="color:#ff8a8a">'+T('Γράψε πρώτα κάποιες νότες.','Type some notes first.')+'</span>'; return null; }
+    if(!e.id) e.id=Date.now().toString(36);
+    const rec={id:e.id,name:(e.name||'').trim()||T('Το τραγούδι μου','My song'),text:e.text,beat:e.beat,sound:e.sound||''};
+    const i=mySongs.findIndex(u=>u.id===e.id); if(i>=0) mySongs[i]=rec; else mySongs.push(rec);
+    storeMySongs(); syncMySongs(); return 'u_'+e.id; };
+  const listen=document.createElement('button'); listen.textContent=T('▶ Άκουσέ το','▶ Listen');
+  listen.onclick=()=>{ const k=save(); if(!k) return; initAudio(); stopDemo(); layoutGuide(k); melEl.classList.remove('show'); playDemo(); };
+  const play=document.createElement('button'); play.className='on'; play.textContent=T('Αποθήκευση και παίξε','Save and play');
+  play.onclick=()=>{ const k=save(); if(!k) return; initAudio(); stopDemo(); layoutGuide(k); melEdit=null; melEl.classList.remove('show'); };
+  row.append(play,listen);
+  if(e.id){ const del=document.createElement('button'); del.textContent=T('Διαγραφή','Delete');
+    twoTap(del,()=>{ mySongs=mySongs.filter(u=>u.id!==e.id); storeMySongs(); if(guide&&guide.key==='u_'+e.id){ stopDemo(); guide=null; } syncMySongs(); melEdit=null; renderMel(); },T('Σίγουρα;','Sure?'));
+    row.append(del); }
+  const help=document.createElement('p');
+  help.innerHTML=T(
+    '<b>Νότες:</b> <code>Ντο Ρε Μι Φα Σολ Λα Σι</code> (ή <code>C D E F G A B</code>). Δίεση/ύφεση: <code>Φα#</code>, <code>Σιb</code>. Πιο ψηλά ή χαμηλά: <code>Μι5</code>, <code>Μι3</code> (αλλιώς 4). Διάρκεια: <code>Μι:2</code> διπλή, <code>Μι:1/2</code> μισή, ή <code>-</code> μετά τη νότα για να κρατήσει περισσότερο. Κρουστά: <code>K</code> μεγάλο τύμπανο, <code>S</code> ταμπούρο.<br><br><b>Ταμπλατούρα:</b> αντέγραψε τις 6 γραμμές της κιθάρας (<code>e|--0--2--|</code> … <code>E|--------|</code>) από όποια σελίδα θες και επικόλλησέ τες εδώ, όσα κομμάτια κι αν είναι. Ο αριθμός είναι το τάστο, το 0 η ανοιχτή χορδή. Οι παύλες ανάμεσα δείχνουν πόσο κρατά κάθε νότα. Αν βγει πολύ γρήγορο ή αργό, άλλαξε την ταχύτητα. Οι συγχορδίες παίζονται σαν γρήγορο άρπισμα.<br><br>Τα τραγούδια σου μένουν μόνο σε αυτή τη συσκευή.',
+    '<b>Notes:</b> <code>C D E F G A B</code> (or <code>Do Re Mi…</code>). Sharp/flat: <code>F#</code>, <code>Bb</code>. Higher or lower: <code>E5</code>, <code>E3</code> (default 4). Length: <code>E:2</code> double, <code>E:1/2</code> half, or <code>-</code> after a note to hold it longer. Drums: <code>K</code> kick, <code>S</code> snare.<br><br><b>Tab:</b> copy the 6 guitar lines (<code>e|--0--2--|</code> … <code>E|--------|</code>) from any page and paste them here, as many blocks as you like. Numbers are frets, 0 is the open string. The dashes between show how long each note lasts. If it comes out too fast or slow, change the speed. Chords are played as a quick arpeggio.<br><br>Your songs stay on this device only.');
+  melEl.append(nm,ta,msg,spL,sp,so,row,help); check();
+}
 function renderMel(){
+  if(melEdit) return renderEditor();
   melEl.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b>'+T('Οδηγός μελωδίας','Melody guide')+'</b></div>';
   const hb=document.createElement('button'); hb.textContent=T('Κρύψε','Hide'); hb.onclick=()=>melEl.classList.remove('show'); melEl.firstChild.appendChild(hb);
   const sel=document.createElement('select'); sel.innerHTML=Object.entries(SONGS).map(([k,v])=>`<option value="${k}">${T(v.name,v.en)}</option>`).join('');
-  if(guide) sel.value=guide.key;
+  if(guide && SONGS[guide.key]) sel.value=guide.key;
   const lv=document.createElement('div'); lv.className='lv';
   [1,2,3].forEach(n=>{ const b=document.createElement('button'); b.textContent=T('Επίπεδο ','Level ')+n; b.classList.toggle('on',(guide?guide.level:melLevel)===n);
     b.onclick=()=>{ melLevel=n; if(guide){ guide.level=n; guide.lastAdv=performance.now(); } renderMel(); }; lv.appendChild(b); });
@@ -904,9 +1020,16 @@ function renderMel(){
   const listen=document.createElement('button'); listen.textContent=T('▶ Άκουσέ το','▶ Listen'); listen.onclick=()=>{ if(!guide){ initAudio(); layoutGuide(sel.value); } melEl.classList.remove('show'); playDemo(); };
   const stop=document.createElement('button'); stop.textContent=T('Τέλος οδηγού','End guide'); stop.onclick=()=>{ stopDemo(); guide=null; renderMel(); };
   const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;flex-wrap:wrap'; row.append(go,listen,stop);
+  const mine=document.createElement('div'); mine.style.cssText='display:flex;gap:6px;flex-wrap:wrap;margin-top:8px';
+  const add=document.createElement('button'); add.textContent=T('＋ Δικό μου τραγούδι','＋ My own song');
+  add.onclick=()=>{ melEdit={name:'',text:'',beat:400,sound:''}; renderMel(); };
+  const ed=document.createElement('button'); ed.textContent=T('✎ Επεξεργασία','✎ Edit');
+  ed.onclick=()=>{ const u=mySongs.find(x=>'u_'+x.id===sel.value); if(u){ melEdit={...u}; renderMel(); } };
+  const updEd=()=>ed.style.display=sel.value.startsWith('u_')?'':'none'; sel.addEventListener('change',updEd); updEd();
+  mine.append(add,ed);
   const p=document.createElement('p');
   p.innerHTML=T('Το πρόγραμμα στήνει μία χορδή για κάθε νότα του τραγουδιού. Ακολούθα το βελάκι: ξεκίνα το δάχτυλο από την τελίτσα με τον κύκλο και σύρε το ως την μύτη του βέλους, ώστε να χτυπήσεις μόνο εκείνη τη χορδή. Στο επίπεδο 2 φαίνεται μόνο η χορδή που ακολουθεί, στο 3 τίποτα (η βοήθεια επιστρέφει αν κολλήσεις). Όταν τελειώσεις το τραγούδι, ανεβαίνεις επίπεδο.','The app lays out one string for each note of the song. Follow the arrow: start your finger on the circled dot and drag it to the tip of the arrow, so you hit only that string. At level 2 only the next string is shown, at level 3 nothing (help comes back if you get stuck). When you finish the song, you go up a level.');
-  melEl.append(sel,easy,lv,row,p);
+  melEl.append(sel,easy,lv,row,mine,p);
 }
 document.getElementById('melBtn').addEventListener('click',()=>{ setEl.classList.remove('show'); latEl.classList.remove('show'); libEl.classList.remove('show'); renderMel(); melEl.classList.toggle('show'); });
 ['setBtn','latBtn','libBtn'].forEach(id=>document.getElementById(id).addEventListener('click',()=>melEl.classList.remove('show')));
