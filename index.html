@@ -386,7 +386,11 @@ function drumSound(d,v,edge){
 }
 function hitDrum(d,x,y,v){
   d.t0=performance.now(); d.amp=v;
-  drumSound(d,v,Math.min(1,Math.hypot(x-d.x,y-d.y)/d.r));
+  let sd=d;                                              // εύκολη λειτουργία: όποιο τύμπανο κι αν χτυπήσεις, ακούγεται το σωστό
+  const gt=guide && !guide.demo && !guide.doneAt && guide.seq[guide.idx];
+  if(gt && guide.easy && gt.r!=null) sd=gt;
+  drumSound(sd,v,sd===d?Math.min(1,Math.hypot(x-d.x,y-d.y)/d.r):DRUM_KIND[sd.kind].edge);
+  if(gt && guide.seq.includes(d)) guideHit(d);
   if(navigator.vibrate) try{navigator.vibrate(15)}catch(e){}
   for(let i=0;i<10;i++){const an=Math.random()*Math.PI*2, sp=1+Math.random()*3.5;
     parts.push({x,y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp,life:1,hue:DRUM_HUE});}
@@ -409,7 +413,7 @@ function pluck(s,t,speed){ played=true;
   const all={...s.props, hitpos:u, edge:Math.abs(2*u-1)};
   toneB=clamp01(0.5+mix(all,'bright')); toneV=Math.pow(2,mix(all,'vol')*2);
   let noteS=s;                                           // εύκολη λειτουργία: όποια χορδή κι αν περάσεις, παίζει η επόμενη νότα του τραγουδιού
-  if(guide && guide.easy && !guide.demo && !guide.doneAt && guide.idx<guide.seq.length) noteS=guide.seq[guide.idx];
+  if(guide && guide.easy && !guide.demo && !guide.doneAt && guide.idx<guide.seq.length && guide.seq[guide.idx].r==null) noteS=guide.seq[guide.idx];
   const f = noteS!==s ? noteS.freq : (s.fixed==null && (S.m.hitpos.note||S.m.edge.note)) ? toFreq(midiFrom(all)) : s.freq;   // το σημείο χτυπήματος αλλάζει τη νότα
   if(noteS!==s) guide.pop={text:noteS.label, x:s.a.x+(s.b.x-s.a.x)*t, y:s.a.y+(s.b.y-s.a.y)*t, born:now};
   toneFreq=f;
@@ -466,7 +470,10 @@ cv.addEventListener('pointerdown',e=>{
     const off=dr.r-Math.hypot(e.clientX-dr.x,e.clientY-dr.y);
     ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[],size:{d:dr,off,on:false}}); return; }
   if(dr){ hitDrum(dr,e.clientX,e.clientY,0.9); latRecord(e.timeStamp);   // χτύπημα αμέσως· moved:true = δεν γίνεται άκρο χορδής
-    ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[]}); return; }
+    const p={x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:true,trail:[],hold:{d:dr,dx:dr.x-e.clientX,dy:dr.y-e.clientY,on:false}};
+    p.hold.timer=setTimeout(()=>{ if(ptrs.get(e.pointerId)!==p) return;   // κρατάς το δάχτυλο ακίνητο = το τύμπανο «σηκώνεται» και μετακινείται
+      p.hold.on=true; dr.moving=true; if(navigator.vibrate) navigator.vibrate(15); },420);
+    ptrs.set(e.pointerId,p); return; }
   ptrs.set(e.pointerId,{x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t:performance.now(),moved:false,trail:[]});
 });
 cv.addEventListener('pointermove',e=>{
@@ -482,6 +489,11 @@ cv.addEventListener('pointermove',e=>{
       s.deleting = diff < -6;                            // πέρασε πέρα από την άλλη τελίτσα = θα διαγραφεί
       if(!s.deleting && s.midi!==old && now-(s.tPrev||0)>60){ s.tPrev=now; previewNote(s); }
       p.x=nx;p.y=ny;p.t=now; continue;
+    }
+    if(p.hold){
+      const h=p.hold;
+      if(h.on){ h.d.x=nx+h.dx; h.d.y=ny+h.dy; p.x=nx;p.y=ny;p.t=now; continue; }   // μετακίνηση: αθόρυβη
+      if(Math.hypot(nx-p.x0,ny-p.y0)>10){ clearTimeout(h.timer); p.hold=null; }    // κουνήθηκε πριν το κράτημα: κανονικό σύρσιμο
     }
     if(p.size){
       const z=p.size, d=z.d;
@@ -506,6 +518,8 @@ cv.addEventListener('pointermove',e=>{
 });
 function up(e){
   const p=ptrs.get(e.pointerId); if(!p) return; ptrs.delete(e.pointerId);
+  if(p.hold){ clearTimeout(p.hold.timer); p.hold.d.moving=false;
+    if(p.hold.on){ const d=p.hold.d; d.x=Math.min(W,Math.max(0,d.x)); d.y=Math.min(H,Math.max(0,d.y)); return; } }
   if(p.drag){
     const s=p.drag.s;
     if(s.deleting && e.type!=='pointercancel'){          // άφησε αφού πέρασε την άλλη τελίτσα
@@ -711,7 +725,45 @@ const SONGS={
     [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2],
     [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],  [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],
     [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2]]},
+  // 'K' = μεγάλο τύμπανο, 'S' = ταμπούρο/παλαμάκι. Τα τραγούδια με κρουστά στήνουν και δύο τύμπανα.
+  jingle:{name:'Τζίνγκλ Μπελς (ρεφρέν) 🥁', en:'Jingle Bells (chorus) 🥁', beat:330, notes:[
+    [64,1],[64,1],[64,1],['S',1], [64,1],[64,1],[64,1],['S',1], [64,1],[67,1],[60,1.5],[62,.5], [64,2],['K',1],['S',1],
+    [65,1],[65,1],[65,1.5],[65,.5], [65,1],[64,1],[64,1],[64,.5],[64,.5], [64,1],[62,1],[62,1],[64,1], [62,2],['S',1],[67,1],['K',1],['S',1]]},
+  saints:{name:'Όταν οι άγιοι (When the Saints) 🥁', en:'When the Saints Go Marching In 🥁', beat:300, notes:[
+    [60,1],[64,1],[65,1],[67,2],['S',1],['S',1], [60,1],[64,1],[65,1],[67,2],['S',1],['S',1],
+    [60,1],[64,1],[65,1],[67,2],[64,2],[60,2],[64,2],[62,3],['S',1],
+    [64,1],[64,1],[62,1],[60,3],[60,1],[64,2],[67,2],[67,1],[65,3],['S',1],
+    [64,1],[65,1],[67,2],[64,2],[60,2],[62,2],[60,2],['K',1],['S',1]]},
+  bella:{name:'Μπέλα τσάο (ιταλικό λαϊκό) 🥁', en:'Bella Ciao (Italian folk) 🥁', beat:330, notes:[
+    [64,.5],[69,.5],[71,.5],[72,.5],[69,1],['S',1], [64,.5],[69,.5],[71,.5],[72,.5],[69,1],['S',1],
+    [64,.5],[69,.5],[71,.5],[72,1],[71,.5],[69,.5],[72,1],[71,.5],[69,.5],[76,1],[76,1],[76,1],['K',.5],['S',.5],
+    [76,.5],[74,.5],[76,.5],[77,.5],[77,2], [77,.5],[76,.5],[74,.5],[77,.5],[76,2],
+    [76,.5],[74,.5],[72,.5],[71,1],[76,1],[72,1],[71,1],[69,1],['K',1],['S',1]]},
+  korob:{name:'Κορομπέινικι (ρώσικο λαϊκό) 🥁', en:'Korobeiniki (Russian folk) 🥁', beat:380, notes:[
+    [76,1],[71,.5],[72,.5],[74,1],[72,.5],[71,.5], [69,1],[69,.5],[72,.5],[76,1],[74,.5],[72,.5],
+    [71,1.5],[72,.5],[74,1],[76,1], [72,1],[69,1],[69,1],['S',1],
+    ['K',.5],[74,1],[77,.5],[81,1],[79,.5],[77,.5], [76,1.5],[72,.5],[76,1],[74,.5],[72,.5],
+    [71,1],[71,.5],[72,.5],[74,1],[76,1], [72,1],[69,1],[69,1],['K',.5],['S',.5]]},
+  mountain:{name:'Στη σπηλιά του βασιλιά του βουνού (Γκριγκ) 🥁', en:'In the Hall of the Mountain King (Grieg) 🥁', beat:420, notes:[
+    [59,.5],[61,.5],[62,.5],[64,.5],[66,.5],[62,.5],[66,1], [65,.5],[61,.5],[65,1],[64,.5],[60,.5],[64,1],['K',.5],['S',.5],
+    [59,.5],[61,.5],[62,.5],[64,.5],[66,.5],[62,.5],[66,.5],[71,.5], [69,.5],[66,.5],[62,.5],[66,.5],[69,2],['K',.5],['K',.5],['S',1]]},
+  jacques:{name:'Αδελφέ Ιάκωβε (Frère Jacques) 🥁', en:'Frère Jacques 🥁', beat:420, notes:[
+    [60,1],[62,1],[64,1],[60,1], [60,1],[62,1],[64,1],[60,1], [64,1],[65,1],[67,1],['S',1], [64,1],[65,1],[67,1],['S',1],
+    [67,.5],[69,.5],[67,.5],[65,.5],[64,1],[60,1], [67,.5],[69,.5],[67,.5],[65,.5],[64,1],[60,1],
+    [60,1],[55,1],[60,1],['K',1], [60,1],[55,1],[60,1],['K',.5],['S',.5]]},
+  elise:{name:'Για την Ελίζα (Μπετόβεν)', en:'Für Elise (Beethoven)', beat:400, sound:'piano', notes:[
+    [76,.5],[75,.5],[76,.5],[75,.5],[76,.5],[71,.5],[74,.5],[72,.5],[69,1.5], [60,.5],[64,.5],[69,.5],[71,1.5], [64,.5],[68,.5],[71,.5],[72,1.5],
+    [64,.5],[76,.5],[75,.5],[76,.5],[75,.5],[76,.5],[71,.5],[74,.5],[72,.5],[69,1.5], [60,.5],[64,.5],[69,.5],[71,1.5], [64,.5],[72,.5],[71,.5],[69,2]]},
+  green:{name:'Γκρίνσλιβς (κιθάρα, αγγλικό λαϊκό)', en:'Greensleeves (guitar, English folk)', beat:360, sound:'guitar', notes:[
+    [69,1],[72,2],[74,1],[76,1.5],[77,.5],[76,1],[74,2],[71,1],[67,1.5],[69,.5],[71,1],[72,2],[69,1],
+    [69,1.5],[68,.5],[69,1],[71,2],[68,1],[64,2],
+    [69,1],[72,2],[74,1],[76,1.5],[77,.5],[76,1],[74,2],[71,1],[67,1.5],[69,.5],[71,1],[72,1.5],[71,.5],[69,1],[68,1.5],[66,.5],[68,1],[69,3]]},
+  ballad:{name:'Μπαλάντα σε Μι ελάσσονα (κιθάρα)', en:'Ballad in E minor (guitar)', beat:300, sound:'guitar', notes:[   // πρωτότυπη: Μι-, Ντο, Σολ, Ρε
+    ...[40,55,59,64,59,55, 48,55,60,64,60,55, 43,55,59,62,59,55, 50,57,62,66,62,57].map(m=>[m,1]),
+    [40,1],[55,1],[64,1],[66,1],[67,2], [62,1],[66,1],[64,1],[62,1],[59,2], [40,1],[55,1],[59,1],[64,3]]},
 };
+const isDrumNote=n=>typeof n[0]==='string';
+const DRUM_KIND={K:{r:1,el:'Μεγάλο τύμπανο',en:'Kick drum',edge:0}, S:{r:0.72,el:'Ταμπούρο',en:'Snare',edge:0.85}};
 let melLevel=1;
 let melEasy=false; try{ melEasy=localStorage.getItem('arpa.easy')==='1'; }catch(e){}
 let guide=null;      // {song, seq:[string], idx, level, lastAdv, demo, misses, doneAt, h}
@@ -719,10 +771,17 @@ const melEl=document.getElementById('mel');
 const STALL={2:3000,3:6000};     // μετά από πόσο «κόλλημα» ξαναφαίνεται η βοήθεια στα επίπεδα 2 και 3
 
 function layoutGuide(key){
-  const song=SONGS[key], pitches=[...new Set(song.notes.map(n=>n[0]))].sort((a,b)=>a-b), n=pitches.length;
-  strings.length=0; pending=null;
+  const song=SONGS[key], pitches=[...new Set(song.notes.filter(n=>!isDrumNote(n)).map(n=>n[0]))].sort((a,b)=>a-b), n=pitches.length;
+  const kinds=['K','S'].filter(k=>song.notes.some(x=>x[0]===k));
+  strings.length=0; drums.length=0; pending=null;
+  if(song.sound && SOUNDS[song.sound]) setSound(song.sound);
   const horiz=H>=W;                                        // πορτραίτο: οριζόντιες χορδές, η μία πάνω από την άλλη
-  const lo=horiz?140:70, hi=(horiz?H:W)-(horiz?150:70);
+  const lo=horiz?140:70, full=(horiz?H:W)-(horiz?150:70);
+  const R=Math.min(62,Math.max(40,Math.min(W,H)*0.14));    // τα τύμπανα του τραγουδιού μπαίνουν κάτω (πορτραίτο) ή δεξιά
+  const hi=kinds.length&&n? full-2*R-30 : full;
+  const byKind=new Map(), dc=n? full-R : (lo+full)/2;
+  kinds.forEach((k,i)=>{ const f=(i+1)/(kinds.length+1);
+    const d=addDrum(horiz?{x:W*f,y:dc}:{x:dc,y:H*f}, R*DRUM_KIND[k].r); d.kind=k; d.label=T(DRUM_KIND[k].el,DRUM_KIND[k].en); byKind.set(k,d); });
   const spacing=Math.min(95,n>1?(hi-lo)/(n-1):0);
   const mid=(lo+hi)/2, start=mid-spacing*(n-1)/2, byMidi=new Map();
   pitches.forEach((m,i)=>{
@@ -730,12 +789,13 @@ function layoutGuide(key){
     const a=horiz?{x:W*0.1,y:pos}:{x:pos,y:H*0.2}, b=horiz?{x:W*0.9,y:pos}:{x:pos,y:H*0.8};
     byMidi.set(m,addString(a,b,m));
   });
-  guide={key,song,seq:song.notes.map(([m])=>byMidi.get(m)),idx:0,level:guide?guide.level:melLevel,easy:melEasy,pop:null,lastAdv:performance.now(),demo:false,misses:0,doneAt:0,h:Math.min(34,spacing*0.38||34),timers:[]};
+  guide={key,song,seq:song.notes.map(([m])=>byKind.get(m)||byMidi.get(m)),idx:0,level:guide?guide.level:melLevel,easy:melEasy,pop:null,lastAdv:performance.now(),demo:false,misses:0,doneAt:0,h:Math.min(34,spacing*0.38||34),timers:[]};
   updCount(); hideHint();
 }
 function guideHit(s){
   const g=guide, now=performance.now(); if(g.doneAt||g.idx>=g.seq.length) return;
-  if(g.easy){ g.idx++; g.lastAdv=now; if(g.idx>=g.seq.length) g.doneAt=now; return; }
+  if(g.easy){ if((g.seq[g.idx].r!=null)!==(s.r!=null)) return;    // χορδή όταν θέλει τύμπανο (ή ανάποδα): δεν προχωρά
+    g.idx++; g.lastAdv=now; if(g.idx>=g.seq.length) g.doneAt=now; return; }
   if(s===g.seq[g.idx]){ g.idx++; g.lastAdv=now; if(g.idx>=g.seq.length) g.doneAt=now; }
   else { s.missT=now; g.misses++; }
 }
@@ -747,12 +807,12 @@ function arrowFor(s,h){        // βελάκι που διασχίζει ΜΟΝ�
 }
 function guideState(now){
   const g=guide; if(!g) return null;
-  if(g.seq.some(s=>!strings.includes(s))){ guide=null; return null; }    // χορδή διαγράφηκε: τέλος οδηγού
+  if(g.seq.some(s=>!strings.includes(s)&&!drums.includes(s))){ guide=null; return null; }    // χορδή διαγράφηκε: τέλος οδηγού
   if(g.doneAt){
     if(now-g.doneAt>3200){ if(g.level<3 && !g.easy) g.level++; g.idx=0; g.doneAt=0; g.lastAdv=now; g.misses=0; }
     return {done:true,g,glow:false,arrow:false,target:null};
   }
-  if(g.easy) return {g,easy:true,target:g.seq[g.idx],glow:false,arrow:false,done:false};
+  if(g.easy){ const t=g.seq[g.idx]; return {g,easy:true,target:t,glow:t.r!=null,arrow:false,done:false}; }
   const stalled=g.level>1 && now-g.lastAdv>STALL[g.level];
   return {g,target:g.seq[g.idx],glow:g.level<=2||stalled,arrow:g.level===1||stalled,done:false};
 }
@@ -779,6 +839,13 @@ function drawGuide(now,gs){
     if(Math.random()<0.25){ const s=strings[(Math.random()*strings.length)|0]; if(s) sparks(s,Math.random()); }
   } else {
     const t=gs.target, pulse=0.5+0.5*Math.sin(now/220);
+    if(t.r!=null){                                          // επόμενο είναι τύμπανο: δαχτυλίδι που πάλλεται + τελίτσα στο σημείο
+      if(gs.glow){ cx.globalCompositeOperation='lighter'; cx.beginPath(); cx.arc(t.x,t.y,t.r+10+6*pulse,0,7);
+        cx.strokeStyle='rgba(255,214,120,'+(0.3+0.4*pulse)+')'; cx.lineWidth=5; cx.stroke(); cx.globalCompositeOperation='source-over'; }
+      if(gs.arrow){ const ex=t.kind==='S'?t.r*0.75:0;   // ταμπούρο: χτύπα κοντά στην άκρη, πιο «ξερό»
+        cx.fillStyle='rgba(255,214,120,.95)'; cx.beginPath(); cx.arc(t.x+ex,t.y,7+3*pulse,0,7); cx.fill();
+        cx.strokeStyle='rgba(255,214,120,.95)'; cx.lineWidth=1.5; cx.beginPath(); cx.arc(t.x+ex,t.y,16+8*pulse,0,7); cx.stroke(); }
+    } else {
     if(gs.glow){                                            // φωτεινό περίγραμμα στη χορδή που πρέπει να χτυπηθεί
       cx.globalCompositeOperation='lighter';
       cx.beginPath(); cx.moveTo(t.a.x,t.a.y); cx.lineTo(t.b.x,t.b.y);
@@ -794,12 +861,15 @@ function drawGuide(now,gs){
       cx.beginPath(); cx.moveTo(x2,y2); cx.lineTo(x2-14*Math.cos(ang-0.5),y2-14*Math.sin(ang-0.5)); cx.lineTo(x2-14*Math.cos(ang+0.5),y2-14*Math.sin(ang+0.5)); cx.closePath(); cx.fill();   // τέλος
       const k=(now/650)%1; cx.beginPath(); cx.arc(x1+(x2-x1)*k,y1+(y2-y1)*k,4.5,0,7); cx.fillStyle='#fff'; cx.fill();   // κινούμενη τελίτσα
     }
+    }
     if(gs.easy) drawSweep(now);
     cx.fillStyle='rgba(255,255,255,.8)'; cx.font='bold 15px system-ui';
     cx.fillText((gs.easy?T('Επόμενη νότα: ','Next note: '):'')+t.label,W/2,H-118);
   }
   if(g.pop && now-g.pop.born<800){                          // η νότα που μόλις έπαιξε, ανεβαίνει και σβήνει
     const k=(now-g.pop.born)/800; cx.fillStyle='rgba(255,230,160,'+(1-k)+')'; cx.font='bold 20px system-ui'; cx.fillText(g.pop.text,g.pop.x,g.pop.y-14-28*k); }
+  cx.fillStyle='rgba(255,255,255,.6)'; cx.font='12px system-ui';
+  for(const d of drums) if(d.label) cx.fillText(d.label,d.x,d.y+d.r+18);
   const frac=g.idx/g.seq.length;                            // πρόοδος
   cx.fillStyle='rgba(255,255,255,.12)'; cx.fillRect(W*0.2,H-104,W*0.6,4);
   cx.fillStyle='rgba(255,214,120,.9)'; cx.fillRect(W*0.2,H-104,W*0.6*frac,4);
@@ -813,7 +883,7 @@ function stopDemo(){ if(guide){ guide.timers.forEach(clearTimeout); guide.timers
 function playDemo(){          // το πρόγραμμα παίζει το τραγούδι στις χορδές, για να το ακούσεις
   if(!guide) return; initAudio(); stopDemo(); guide.demo=true;
   let t=0; const g=guide, beat=g.song.beat;
-  g.song.notes.forEach(([m,d],i)=>{ const s=g.seq[i]; g.timers.push(setTimeout(()=>{ if(guide===g) pluck(s,0.6,1.0); },t)); t+=d*beat; });
+  g.song.notes.forEach(([m,d],i)=>{ const s=g.seq[i]; g.timers.push(setTimeout(()=>{ if(guide!==g) return; if(s.r!=null) hitDrum(s,s.x+s.r*DRUM_KIND[s.kind].edge,s.y,0.85); else pluck(s,0.6,1.0); },t)); t+=d*beat; });
   g.timers.push(setTimeout(()=>{ if(guide===g) g.demo=false; },t+200));
 }
 function renderMel(){
@@ -830,7 +900,7 @@ function renderMel(){
   cb.onchange=()=>{ melEasy=cb.checked; try{localStorage.setItem('arpa.easy',melEasy?'1':'0');}catch(e){} if(guide){ guide.easy=melEasy; guide.lastAdv=performance.now(); } renderMel(); };
   lv.style.opacity=melEasy?0.4:1; lv.style.pointerEvents=melEasy?'none':'auto';
   const go=document.createElement('button'); go.className='on'; go.textContent=guide?T('Ξανά από την αρχή','Restart'):T('Ξεκίνα','Start');
-  twoTap(go,()=>{ initAudio(); stopDemo(); layoutGuide(sel.value); melEl.classList.remove('show'); },T('Οι χορδές σου θα αντικατασταθούν. Πάτα ξανά','Your strings will be replaced. Tap again'),()=>!guide&&strings.length>0);
+  twoTap(go,()=>{ initAudio(); stopDemo(); layoutGuide(sel.value); melEl.classList.remove('show'); },T('Οι χορδές σου θα αντικατασταθούν. Πάτα ξανά','Your strings will be replaced. Tap again'),()=>!guide&&(strings.length>0||drums.length>0));
   const listen=document.createElement('button'); listen.textContent=T('▶ Άκουσέ το','▶ Listen'); listen.onclick=()=>{ if(!guide){ initAudio(); layoutGuide(sel.value); } melEl.classList.remove('show'); playDemo(); };
   const stop=document.createElement('button'); stop.textContent=T('Τέλος οδηγού','End guide'); stop.onclick=()=>{ stopDemo(); guide=null; renderMel(); };
   const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;flex-wrap:wrap'; row.append(go,listen,stop);
@@ -846,10 +916,11 @@ document.getElementById('melBtn').addEventListener('click',()=>{ setEl.classList
 const sw=document.getElementById('sounds');
 Object.entries(SOUNDS).forEach(([k,s])=>{
   const b=document.createElement('button'); b.textContent=T(s.name,s.en); b.dataset.k=k; if(k===sound)b.classList.add('on');
-  b.onclick=()=>{initAudio(); sound=k; if(s.sf) sfLoad(s.sf,k); [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===k));
-    strings.forEach(st=>st.hue=s.hue+((st.midi%12)*9)); };
+  b.onclick=()=>{initAudio(); setSound(k); };
   sw.appendChild(b);
 });
+function setSound(k){ const s=SOUNDS[k]; sound=k; if(s.sf && ac) sfLoad(s.sf,k); [...sw.children].forEach(x=>x.classList.toggle('on',x.dataset.k===k));
+  strings.forEach(st=>st.hue=s.hue+((st.midi%12)*9)); }
 function applyStatic(){
   document.querySelectorAll('[data-en]').forEach(el=>{ if(el.dataset.el===undefined) el.dataset.el=el.innerHTML; el.innerHTML=LANG==='en'?el.dataset.en:el.dataset.el; });
   document.querySelectorAll('[data-en-title]').forEach(el=>{ if(el.dataset.elTitle===undefined) el.dataset.elTitle=el.title; el.title=LANG==='en'?el.dataset.enTitle:el.dataset.elTitle; });
@@ -888,7 +959,7 @@ function frame(now){
 
   for(const d of drums){
     const el=Math.max(0,(now-d.t0)/1000), k=d.amp*Math.exp(-el*5), g=clamp01((now-d.born)/250);   // το now του καρέ μπορεί να προηγείται του αγγίγματος
-    const r=(8+(d.r-8)*(1-(1-g)*(1-g)))*(1+0.06*k*Math.cos(el*45));      // μεγαλώνει από τον μικρό κύκλο· πάλλεται στο χτύπημα
+    const r=(8+(d.r-8)*(1-(1-g)*(1-g)))*(1+0.06*k*Math.cos(el*45))*(d.moving?1.08:1);   // μεγαλώνει από τον μικρό κύκλο· πάλλεται στο χτύπημα· λίγο μεγαλύτερο όσο μετακινείται
     cx.globalAlpha=d.deleting?0.22:1;
     cx.beginPath(); cx.arc(d.x,d.y,r,0,7); cx.fillStyle=`hsla(${DRUM_HUE},90%,55%,${.07+.18*k})`; cx.fill();
     cx.strokeStyle=`hsl(${DRUM_HUE},95%,${60+25*k}%)`; cx.lineWidth=6+3*k; cx.stroke();
